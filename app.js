@@ -454,7 +454,7 @@ function payFlow(amount, done){
 }
 function finishBooking(mode, pay){
   const a={id:'A'+Date.now(), pid:B.pid||'me', doctor:B.docName, spec:B.spec, facility:B.facName, when:B.when, fee:B.fee, mode, pay:pay||null, payAt:Date.now(), status:'ok', created:Date.now()};
-  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); B={}; go('#/booked/'+a.id);
+  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK && a.pid==='me') AFK.syncAppt(a); B={}; go('#/booked/'+a.id);
 }
 function vBooked(id){
   const a=S.appts.find(x=>x.id===id); if(!a) return go('#/home');
@@ -506,7 +506,7 @@ function vCart(){
     $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ const id=b.dataset.m; S.cart[id]=Math.max(0,(S.cart[id]||0)+(+b.dataset.d)); if(!S.cart[id]) delete S.cart[id]; save(); draw(); });
     $app.querySelectorAll('[data-mo]').forEach(b=>b.onclick=()=>{ mode=b.dataset.mo; draw(); });
     const check=()=>{ if(mode==='delivery' && !addr.trim()){ const a=document.getElementById('ad'); a.parentNode.classList.add('err'); toast(t('address_req')); return false; } return true; };
-    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); go('#/ordered/'+o.id); };
+    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK && o.pid==='me') AFK.syncOrder(o); go('#/ordered/'+o.id); };
     document.getElementById('pm').onclick=()=>{ if(check()) payFlow(sub+del, p=>place(p)); };
   };
   draw();
@@ -791,8 +791,8 @@ function vInsurance(){
       '<p class="demo">'+t('ins_demo')+'</p></div>', S.who==='me'?'profile':'family');
     bindWho();
     $app.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{ plan=+b.dataset.pl; draw(); });
-    const sb=document.getElementById('sub'); if(sb) sb.onclick=()=>payFlow(IN.plans[plan][0], pay=>{ S.ins.comp[p.id]={plan, paid:1, start:Date.now(), ref:pay.ref}; addNotif('shield',t('n_ins_t'),t('comp_ok_s',{name:fullName(p)})); save(); draw(); sheet('<div class="ok" style="padding-top:6px"><div class="c">'+I('check','lg')+'</div><h2>'+t('comp_ok')+'</h2><p>'+t('comp_ok_s',{name:nm(fullName(p))})+'</p></div><button class="btn" id="okb">OK</button>', s=>s.querySelector('#okb').onclick=closeSheet); });
-    const pn=document.getElementById('pn2'); if(pn) pn.onclick=()=>{ const c=S.ins.comp[p.id]; payFlow(IN.plans[c.plan][c.paid], ()=>{ c.paid++; save(); toast(t('inst_ok')); draw(); }); };
+    const sb=document.getElementById('sub'); if(sb) sb.onclick=()=>payFlow(IN.plans[plan][0], pay=>{ S.ins.comp[p.id]={plan, paid:1, start:Date.now(), ref:pay.ref}; if(window.AFK && p.id==='me') AFK.syncInsurance(plan, IN.plans[plan][0], pay).then(sub=>{ if(sub && S.ins.comp[p.id]){ S.ins.comp[p.id].sbSub=sub.id; save(); } }); addNotif('shield',t('n_ins_t'),t('comp_ok_s',{name:fullName(p)})); save(); draw(); sheet('<div class="ok" style="padding-top:6px"><div class="c">'+I('check','lg')+'</div><h2>'+t('comp_ok')+'</h2><p>'+t('comp_ok_s',{name:nm(fullName(p))})+'</p></div><button class="btn" id="okb">OK</button>', s=>s.querySelector('#okb').onclick=closeSheet); });
+    const pn=document.getElementById('pn2'); if(pn) pn.onclick=()=>{ const c=S.ins.comp[p.id]; payFlow(IN.plans[c.plan][c.paid], ()=>{ c.paid++; if(window.AFK && p.id==='me') AFK.syncInstallment(c.sbSub, IN.plans[c.plan][c.paid-1]); save(); toast(t('inst_ok')); draw(); }); };
     const lk=document.getElementById('lk'); if(lk) lk.onclick=()=>linkSheet(draw);
   };
   draw();
@@ -815,11 +815,66 @@ function linkSheet(after){
 }
 
 /* ---------- Profile, notifs, about, search ---------- */
+/* ---------- Compte AfrikSol (connexion e-mail, base partagée) ---------- */
+function accountRow(){
+  const on = window.AFK && AFK.connected();
+  const s = on ? AFK.session() : null, p = on ? AFK.patient() : null;
+  return '<button class="row" data-go="#/account"><span class="ic">'+I('shield','sm')+'</span><span class="tx"><b>'+t('account')+'</b><small>'+(on ? esc(s.user.email)+(p ? ' · '+ISO(p.health_id) : '') : t('account_off'))+'</small></span>'+I('chev','sm chev')+'</button>';
+}
+function authErr(e){
+  const m = (e && e.message) || '';
+  if(/Invalid login credentials/i.test(m)) return t('err_credentials');
+  if(/already registered/i.test(m)) return t('err_exists');
+  if(/password/i.test(m)) return t('err_password');
+  return m || t('err_generic');
+}
+function vAccount(){
+  if(!window.AFK){
+    screen(topbar(t('account'),'')+'<div class="scroll"><div class="card empty">'+t('err_generic')+'</div></div>','profile');
+    return;
+  }
+  if(AFK.connected()){
+    const s = AFK.session(), p = AFK.patient();
+    screen(topbar(t('account'),'')+'<div class="scroll">'+
+      '<div class="card"><div class="kv"><span>'+t('email')+'</span><b>'+esc(s.user.email)+'</b></div>'+
+      (p ? '<div class="kv"><span>'+t('patient')+'</span><b>'+esc(p.first_name+' '+p.last_name)+'</b></div><div class="kv"><span>'+t('health_no')+'</span><b>'+ISO(p.health_id)+'</b></div>'
+         : '<div class="alert orange" style="margin-top:10px">'+I('info','sm')+'<span>'+t('account_nopat')+'</span></div>')+
+      '</div>'+
+      '<div class="alert green" style="margin-top:12px">'+I('check','sm')+'<span>'+t('account_on_note')+'</span></div>'+
+      '<div style="margin-top:16px"><button class="btn ghost" id="so">'+t('sign_out')+'</button></div></div>','profile');
+    document.getElementById('so').onclick = ()=>{ AFK.signOut(); toast(t('signed_out')); route(); };
+    if(!p) AFK.loadPatient().then(q=>{ if(q) route(); }).catch(()=>{});
+    return;
+  }
+  let mode = 'in';
+  const draw = ()=>{
+    screen(topbar(t('account'),'')+'<div class="scroll">'+
+      '<div class="alert blue">'+I('info','sm')+'<span>'+t('demo_mode_note')+'</span></div>'+
+      '<div class="chips" style="margin:12px 0"><button class="chip '+(mode==='in'?'on':'')+'" data-m="in">'+t('sign_in')+'</button><button class="chip '+(mode==='up'?'on':'')+'" data-m="up">'+t('sign_up')+'</button></div>'+
+      (mode==='up' ? '<div class="f"><label>'+t('full_name')+'</label><input id="an" autocomplete="name" placeholder="Ex : Awa Ouédraogo"></div>' : '')+
+      '<div class="f"><label>'+t('email')+'</label><input id="ae" type="email" autocomplete="email" placeholder="vous@exemple.com"></div>'+
+      '<div class="f"><label>'+t('password')+'</label><input id="ap" type="password" autocomplete="'+(mode==='up'?'new-password':'current-password')+'" placeholder="••••••••"></div>'+
+      '<div id="aerr"></div>'+
+      '<div style="margin-top:14px"><button class="btn blue" id="ago">'+(mode==='up' ? t('sign_up') : t('sign_in'))+'</button></div>'+
+      '<p class="demo" style="margin-top:12px">'+t('account_note')+'</p></div>','profile');
+    $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ mode=b.dataset.m; draw(); });
+    document.getElementById('ago').onclick = ()=>{
+      const email = document.getElementById('ae').value.trim(), pw = document.getElementById('ap').value;
+      const name = mode==='up' ? document.getElementById('an').value.trim() : '';
+      const err = m => { document.getElementById('aerr').innerHTML = '<div class="alert orange" style="margin-top:10px">'+I('alert','sm')+'<span>'+esc(m)+'</span></div>'; };
+      if(!email || !pw || (mode==='up' && !name)){ err(t('fill_required')); return; }
+      const btn = document.getElementById('ago'); btn.disabled = true;
+      const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
+      act.then(()=>{ toast(t('account_welcome')); route(); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
+    };
+  };
+  draw();
+}
 function vProfile(){
   const me=prof('me');
   const menu=[['receipt','my_payments','#/payments'],['card','tile_card','#/card'],['shield','ins_title','#/insurance'],['calendar','tile_appts','#/appts'],['bag','my_orders','#/orders'],['file','tile_record','#/record'],['family','my_family','#/family'],['bell','notifications','#/notifs'],['globe','language','#/language'],['phone','em_contacts','#/record/contacts'],['info','about','#/about']];
   screen(topbar(t('profile'),'',{noBack:true})+'<div class="scroll"><div class="prof">'+avatar(me,62)+'<span><b>'+esc(fullName(me))+'</b><small>'+ISO(me.num)+' · '+me.city+'</small></span></div>'+
-    '<div style="margin:14px 0">'+healthCard(me)+'</div><div class="menu">'+menu.map(([ic,k,h])=>'<button class="row" data-go="'+h+'" data-mine="1"><span class="ic">'+I(ic,'sm')+'</span><span class="tx"><b>'+t(k)+'</b>'+(k==='language'?'<small>'+t('lang_note')+'</small>':'')+'</span>'+I('chev','sm chev')+'</button>').join('')+
+    '<div style="margin:14px 0">'+healthCard(me)+'</div><div class="menu">'+accountRow()+menu.map(([ic,k,h])=>'<button class="row" data-go="'+h+'" data-mine="1"><span class="ic">'+I(ic,'sm')+'</span><span class="tx"><b>'+t(k)+'</b>'+(k==='language'?'<small>'+t('lang_note')+'</small>':'')+'</span>'+I('chev','sm chev')+'</button>').join('')+
     '<button class="row" id="rs"><span class="ic">'+I('refresh','sm')+'</span><span class="tx"><b>'+t('reset_demo')+'</b><small>'+t('reset_demo_s')+'</small></span></button></div><p class="demo">AfrikSol Santé · v2.0 · '+t('demo_note')+'</p></div>','profile');
   $app.querySelectorAll('[data-mine]').forEach(b=>b.addEventListener('click',()=>{ if(b.dataset.go!=='#/family'){ S.who='me'; save(); } }, true));
   document.getElementById('rs').onclick=()=>sheet('<h3>'+t('reset_demo')+'</h3><p>'+t('reset_q')+'</p><button class="btn" id="y">'+t('reset_yes')+'</button>',s=>s.querySelector('#y').onclick=()=>{ try{ Object.keys(localStorage).filter(k=>k.startsWith('afk2_')&&k!=='afk2_lang').forEach(k=>localStorage.removeItem(k)); }catch(e){} location.hash='#/home'; location.reload(); });
@@ -875,6 +930,7 @@ function route(){
     case 'card': return vCard();
     case 'insurance': return vInsurance();
     case 'profile': return vProfile();
+    case 'account': return vAccount();
     case 'notifs': return vNotifs();
     case 'about': return vAbout();
     case 'search': return vSearch(a.join('/'));
