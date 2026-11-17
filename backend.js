@@ -372,10 +372,127 @@
         });
         if (window.AFK_MERGE) window.AFK_MERGE({ orders: mOrders, appts: mAppts, insByProfile: insByProfile, notifs: mNotifs });
         if (window.console) console.info('[AfrikSol] Historique relu depuis la base partagée :', mOrders.length, 'commande(s),', mAppts.length, 'rendez-vous,', mNotifs.length, 'notification(s)');
+        AFK.pullRecords(localByPatient);
         return { orders: mOrders.length, appts: mAppts.length };
       });
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Historique non chargé :', e.message);
+      return null;
+    });
+  };
+
+  /* ---------------- Dossier médical relu depuis la base partagée ----------------
+     Consultations, ordonnances, vaccins, allergies, maladies chroniques et
+     constantes des dossiers accessibles (moi + famille), injectés dans les
+     rubriques du Dossier de l'app (DATA.RECORDS, lus en direct par l'écran). */
+  AFK.pullRecords = function (localByPatient) {
+    var D = window.DATA;
+    if (!D || !D.RECORDS || !localByPatient) return Promise.resolve(null);
+    var ids = Object.keys(localByPatient);
+    if (!ids.length) return Promise.resolve(null);
+    var inList = ids.join(',');
+    return Promise.all([
+      rest('/consultations?patient_id=in.(' + inList + ')&select=*&order=created_at.desc&limit=50'),
+      rest('/vaccinations?patient_id=in.(' + inList + ')&select=*&order=administered_at.desc&limit=50'),
+      rest('/allergies?patient_id=in.(' + inList + ')&select=*&order=recorded_at.desc&limit=50'),
+      rest('/chronic_conditions?patient_id=in.(' + inList + ')&select=*&order=recorded_at.desc&limit=50'),
+      rest('/vital_signs?patient_id=in.(' + inList + ')&select=*&order=measured_at.desc&limit=50')
+    ]).then(function (res) {
+      var cons = res[0] || [];
+      var consIds = cons.map(function (c) { return c.id; });
+      var rxPromise = consIds.length
+        ? rest('/prescriptions?consultation_id=in.(' + consIds.join(',') + ')&select=*,prescription_items(*)')
+        : Promise.resolve([]);
+      return rxPromise.then(function (rxs) {
+        var consById = {};
+        cons.forEach(function (c) { consById[c.id] = c; });
+        var SECTIONS = ['reports', 'rx', 'vacc', 'allergy', 'chronic', 'vitals'];
+        Object.keys(localByPatient).forEach(function (uuid) {
+          var pid = localByPatient[uuid], R = D.RECORDS[pid];
+          if (!R) return;
+          SECTIONS.forEach(function (s) { if (R[s]) R[s] = R[s].filter(function (x) { return !x.sb; }); });
+        });
+        function push(pid, section, item) {
+          var R = D.RECORDS[pid] = D.RECORDS[pid] || {};
+          var arr = R[section] = R[section] || [];
+          if (!arr.some(function (x) { return x.sbId === item.sbId; })) arr.unshift(item);
+        }
+        function dstr(ts) {
+          try { return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; }
+        }
+        function orgName(orgId) { return AFK.nameByOrg[orgId] || 'AfrikSol'; }
+        var DONE = { fr: 'Terminé', en: 'Completed', ar: 'مكتمل' };
+        var OKL = { fr: 'Normal', en: 'Normal', ar: 'طبيعي' };
+        cons.forEach(function (c) {
+          var pid = localByPatient[c.patient_id];
+          if (!pid) return;
+          push(pid, 'reports', {
+            t: { fr: c.motif || 'Consultation' },
+            s: { fr: orgName(c.org_id) + ' · ' + dstr(c.created_at) + (c.notes ? ' · ' + c.notes : '') },
+            b: ['green', DONE], sb: true, sbId: 'cons-' + c.id
+          });
+        });
+        (rxs || []).forEach(function (rx) {
+          var c = consById[rx.consultation_id];
+          if (!c) return;
+          var pid = localByPatient[c.patient_id];
+          if (!pid) return;
+          (rx.prescription_items || []).forEach(function (it) {
+            push(pid, 'rx', {
+              t: { fr: it.drug_name },
+              s: { fr: [it.dosage, it.frequency, it.duration].filter(Boolean).join(' · ') + (rx.created_at ? ' — ' + dstr(rx.created_at) : '') },
+              b: ['green', OKL], sb: true, sbId: 'rx-' + it.id
+            });
+          });
+        });
+        (res[1] || []).forEach(function (v) {
+          var pid = localByPatient[v.patient_id];
+          if (!pid) return;
+          push(pid, 'vacc', {
+            t: { fr: v.vaccine_name },
+            s: { fr: orgName(v.org_id) + ' · ' + dstr(v.administered_at) + (v.dose_label ? ' · ' + v.dose_label : '') },
+            b: ['green', { fr: 'À jour', en: 'Up to date', ar: 'محدّث' }], sb: true, sbId: 'vacc-' + v.id
+          });
+        });
+        (res[2] || []).forEach(function (a) {
+          var pid = localByPatient[a.patient_id];
+          if (!pid) return;
+          push(pid, 'allergy', {
+            t: { fr: a.label },
+            s: { fr: (a.severity ? 'Sévérité : ' + a.severity + ' · ' : '') + dstr(a.recorded_at) },
+            b: [a.severity === 'severe' ? 'red' : 'orange', { fr: 'Allergie', en: 'Allergy', ar: 'حساسية' }],
+            sb: true, sbId: 'alg-' + a.id
+          });
+        });
+        (res[3] || []).forEach(function (c) {
+          var pid = localByPatient[c.patient_id];
+          if (!pid) return;
+          push(pid, 'chronic', {
+            t: { fr: c.label },
+            s: { fr: c.diagnosed_at ? 'Depuis le ' + dstr(c.diagnosed_at) : '' },
+            b: ['orange', { fr: 'En cours', en: 'Ongoing', ar: 'جارٍ' }],
+            sb: true, sbId: 'chr-' + c.id
+          });
+        });
+        (res[4] || []).forEach(function (v) {
+          var pid = localByPatient[v.patient_id];
+          if (!pid) return;
+          var parts = [];
+          if (v.systolic) parts.push('TA ' + v.systolic + '/' + v.diastolic);
+          if (v.pulse) parts.push('Pouls ' + v.pulse);
+          if (v.temperature_c) parts.push('T° ' + v.temperature_c + ' °C');
+          if (v.weight_kg) parts.push(v.weight_kg + ' kg');
+          push(pid, 'vitals', {
+            t: { fr: 'Constantes' },
+            s: { fr: orgName(v.org_id) + ' · ' + dstr(v.measured_at) + (parts.length ? ' · ' + parts.join(' · ') : '') },
+            b: ['green', OKL], sb: true, sbId: 'vit-' + v.id
+          });
+        });
+        if (window.console) console.info('[AfrikSol] Dossier médical relu depuis la base partagée');
+        return true;
+      });
+    }).catch(function (e) {
+      if (window.console) console.warn('[AfrikSol] Dossier médical non chargé :', e.message);
       return null;
     });
   };
