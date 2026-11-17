@@ -1,0 +1,54 @@
+AFRIKSOL SANTÉ — Application citoyen (Burkina Faso) — version 2 adaptée
+========================================================================
+
+Version adaptée au Burkina Faso de l'application citoyenne AfrikSol Santé
+(référence client « version 2 », initialement configurée pour le Bénin).
+
+ADAPTATIONS BURKINA FASO (faites le 17/11/2026)
+- Urgences : SAMU 112, Police 17, Sapeurs-pompiers 18 (plan de numérotation
+  ARCEP Burkina Faso) ; ligne directe affichée : urgences du CHU Yalgado
+  Ouédraogo, 25 30 68 88.
+- Établissements : Ouagadougou (CHU Yalgado Ouédraogo, CHU Pédiatrique
+  Charles de Gaulle, CHU de Tengandogo, CHU Bogodogo, Hôpital Saint-Camille,
+  cliniques) + CHR de Koudougou et CHU Sourô Sanou (Bobo-Dioulasso).
+  Téléphones des établissements (hors CHU Yalgado) : numéros de démonstration,
+  à vérifier avec le client avant toute démonstration publique.
+- Famille et médecins fictifs : noms burkinabè, ville Ouagadougou,
+  numéros de carte « BF … », téléphones au format burkinabè à 8 chiffres.
+- Paiements : Orange Money, Moov Money, Telecel Money (MTN MoMo et
+  Celtiis Cash, propres au Bénin, ont été remplacés).
+- Assurance : AMU — Assurance Maladie Universelle (remplace l'ARCH béninois).
+- Langues : français, anglais, arabe (de droite à gauche), mooré et dioula.
+  Les dictionnaires mooré et dioula sont à compléter et à faire relire par
+  des locuteurs natifs dans i18n.js ; en attendant, les textes s'affichent
+  en français (mécanisme de repli intégré).
+
+CE QUI FONCTIONNE
+- Accueil : bouton Urgences (appel direct du 112), dossier médical,
+  pharmacie en ligne, mes rendez-vous, ma carte santé.
+- Urgences : appel direct SAMU 112, Pompiers 18, Police 17 ; hôpitaux les
+  plus proches avec bouton « Appeler » et itinéraire.
+- Rendez-vous : 5 étapes (type d'établissement, spécialité, établissement,
+  médecin et créneau, paiement), pour soi ou pour un enfant.
+- Pharmacie : catalogue, panier, livraison ou retrait. Paiement en ligne
+  uniquement (Orange Money, Moov Money, Telecel Money, simulé).
+- Mes paiements : historique complet, reçu détaillé avec QR de vérification,
+  téléchargeable en PDF et partageable.
+- Suivi de commande en direct après paiement (démo accélérée, ~1 minute).
+- Famille (barre du bas) : le parent voit ses enfants et agit pour eux.
+- Ma carte santé : carte santé du Burkina Faso (recto/verso), carte enfant
+  avec mention « Mineur ».
+- Assurance : AMU + complémentaire santé (25 $/an, en 1, 3 ou 4 fois) et
+  rattachement d'une assurance existante.
+- Hors ligne : après une première visite, l'application s'ouvre même sans
+  internet ; les appels d'urgence passent par le réseau téléphonique.
+
+À SAVOIR
+- Version de démonstration avec données FICTIVES : patients, médecins,
+  dossiers, stocks, prix, assurance.
+- Rendez-vous, commandes et souscriptions sont enregistrés sur le
+  téléphone ; paiements et SMS sont simulés.
+- Données à modifier : data.js (hôpitaux, pharmacies, famille, dossiers) ;
+  textes : i18n.js.
+- L'ancien site patient AfrikSol reste en place : cette version est
+  déployée sur sa propre adresse.
