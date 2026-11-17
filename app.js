@@ -51,6 +51,7 @@ function setWho(id, silent){ S.who=id; save(); if(!silent && id!=='me') toast(t(
 
 /* ---------- icons ---------- */
 const P = {
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
   stetho:'<path d="M5 3v5a5 5 0 0 0 10 0V3"/><path d="M10 13v2a5 5 0 0 0 10 0v-2"/><circle cx="20" cy="11" r="2"/>',
   calplus:'<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 9h18M12 13v5M9.5 15.5h5"/>',
@@ -195,7 +196,7 @@ function seed(){
    ====================================================== */
 function vSplash(){
   $app.innerHTML = '<div class="screen splash"><img src="assets/logo-mark.png" alt="" class="splash-mark"><h2>AfrikSol <span>Santé</span></h2><div class="loader"><b></b></div></div>';
-  setTimeout(()=>{ go(S.lang ? '#/home' : '#/lang'); }, 2200);
+  setTimeout(()=>{ go(!S.lang ? '#/lang' : (!S.acctSeen && !(window.AFK && AFK.connected()) ? '#/account' : '#/home')); }, 2200);
 }
 
 function vLang(fromProfile){
@@ -207,7 +208,7 @@ function vLang(fromProfile){
       '<div class="sticky"><button class="btn" id="cont">'+(window.I18N[sel].continue||window.I18N.fr.continue)+'</button></div></div>');
     document.documentElement.dir = sel==='ar'?'rtl':'ltr'; document.documentElement.lang = sel==='dendi'?'ddn':sel;
     $app.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ sel=b.dataset.l; draw(); });
-    document.getElementById('cont').onclick=()=>{ S.lang=sel; store.set('lang',sel); applyDir(); seed(); go(fromProfile?'#/profile':'#/home'); };
+    document.getElementById('cont').onclick=()=>{ S.lang=sel; store.set('lang',sel); applyDir(); seed(); go(fromProfile?'#/profile':'#/account'); };
   };
   draw();
 }
@@ -241,6 +242,7 @@ function vHome(){
     '<div class="hello"><small>'+t(greetKey())+'</small><h2>'+esc(fullName(me))+'</h2><p>'+t('how_help')+'</p></div>'+
     '<div class="sos" role="button" data-go="#/sos"><span class="ic">'+I('siren','lg')+'</span><span class="sx"><b>'+t('emergencies')+'</b><small>'+t('sos_sub')+'</small></span><a class="call" href="tel:112" onclick="event.stopPropagation()">'+I('phone','sm')+'112</a></div>'+
     '<div class="offline"><i></i>'+t('offline_ok')+'</div>'+
+    ((window.AFK && !AFK.connected()) ? '<button class="trkcard" data-go="#/account"><span class="ic">'+I('shield')+'</span><span class="tx"><small>'+t('account')+'</small><b>'+t('account_off')+'</b></span>'+I('chev','sm chev')+'</button>' : '')+
     activeOrders().slice(0,2).map(o=>'<button class="trkcard" data-go="#/order/'+o.id+'"><span class="ic">'+I(o.mode==='delivery'?'pin':'store')+'</span><span class="tx"><small>'+t('trk_follow')+' · '+o.id+'</small><b>'+orderStatusLine(o)+'</b></span>'+I('chev','sm chev')+'</button>').join('')+
     '<div class="sec">'+t('what_do')+'</div><div class="grid2">'+
     tiles.map(([k,ic,h])=>'<button class="tile" data-go="'+h+'"><span class="ic">'+I(ic)+'</span><b>'+t('tile_'+k)+'</b><small>'+t('tile_'+k+'_s')+'</small></button>').join('')+'</div>'+
@@ -454,7 +456,7 @@ function payFlow(amount, done){
 }
 function finishBooking(mode, pay){
   const a={id:'A'+Date.now(), pid:B.pid||'me', doctor:B.docName, spec:B.spec, facility:B.facName, when:B.when, fee:B.fee, mode, pay:pay||null, payAt:Date.now(), status:'ok', created:Date.now()};
-  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK && a.pid==='me') AFK.syncAppt(a); B={}; go('#/booked/'+a.id);
+  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK) AFK.syncAppt(a); B={}; go('#/booked/'+a.id);
 }
 function vBooked(id){
   const a=S.appts.find(x=>x.id===id); if(!a) return go('#/home');
@@ -506,7 +508,7 @@ function vCart(){
     $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ const id=b.dataset.m; S.cart[id]=Math.max(0,(S.cart[id]||0)+(+b.dataset.d)); if(!S.cart[id]) delete S.cart[id]; save(); draw(); });
     $app.querySelectorAll('[data-mo]').forEach(b=>b.onclick=()=>{ mode=b.dataset.mo; draw(); });
     const check=()=>{ if(mode==='delivery' && !addr.trim()){ const a=document.getElementById('ad'); a.parentNode.classList.add('err'); toast(t('address_req')); return false; } return true; };
-    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK && o.pid==='me') AFK.syncOrder(o); go('#/ordered/'+o.id); };
+    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK) AFK.syncOrder(o); go('#/ordered/'+o.id); };
     document.getElementById('pm').onclick=()=>{ if(check()) payFlow(sub+del, p=>place(p)); };
   };
   draw();
@@ -791,8 +793,8 @@ function vInsurance(){
       '<p class="demo">'+t('ins_demo')+'</p></div>', S.who==='me'?'profile':'family');
     bindWho();
     $app.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{ plan=+b.dataset.pl; draw(); });
-    const sb=document.getElementById('sub'); if(sb) sb.onclick=()=>payFlow(IN.plans[plan][0], pay=>{ S.ins.comp[p.id]={plan, paid:1, start:Date.now(), ref:pay.ref}; if(window.AFK && p.id==='me') AFK.syncInsurance(plan, IN.plans[plan][0], pay).then(sub=>{ if(sub && S.ins.comp[p.id]){ S.ins.comp[p.id].sbSub=sub.id; save(); } }); addNotif('shield',t('n_ins_t'),t('comp_ok_s',{name:fullName(p)})); save(); draw(); sheet('<div class="ok" style="padding-top:6px"><div class="c">'+I('check','lg')+'</div><h2>'+t('comp_ok')+'</h2><p>'+t('comp_ok_s',{name:nm(fullName(p))})+'</p></div><button class="btn" id="okb">OK</button>', s=>s.querySelector('#okb').onclick=closeSheet); });
-    const pn=document.getElementById('pn2'); if(pn) pn.onclick=()=>{ const c=S.ins.comp[p.id]; payFlow(IN.plans[c.plan][c.paid], ()=>{ c.paid++; if(window.AFK && p.id==='me') AFK.syncInstallment(c.sbSub, IN.plans[c.plan][c.paid-1]); save(); toast(t('inst_ok')); draw(); }); };
+    const sb=document.getElementById('sub'); if(sb) sb.onclick=()=>payFlow(IN.plans[plan][0], pay=>{ S.ins.comp[p.id]={plan, paid:1, start:Date.now(), ref:pay.ref}; if(window.AFK) AFK.syncInsurance(plan, IN.plans[plan][0], pay, p.id).then(sub=>{ if(sub && S.ins.comp[p.id]){ S.ins.comp[p.id].sbSub=sub.id; save(); } }); addNotif('shield',t('n_ins_t'),t('comp_ok_s',{name:fullName(p)})); save(); draw(); sheet('<div class="ok" style="padding-top:6px"><div class="c">'+I('check','lg')+'</div><h2>'+t('comp_ok')+'</h2><p>'+t('comp_ok_s',{name:nm(fullName(p))})+'</p></div><button class="btn" id="okb">OK</button>', s=>s.querySelector('#okb').onclick=closeSheet); });
+    const pn=document.getElementById('pn2'); if(pn) pn.onclick=()=>{ const c=S.ins.comp[p.id]; payFlow(IN.plans[c.plan][c.paid], ()=>{ c.paid++; if(window.AFK) AFK.syncInstallment(c.sbSub, IN.plans[c.plan][c.paid-1], p.id); save(); toast(t('inst_ok')); draw(); }); };
     const lk=document.getElementById('lk'); if(lk) lk.onclick=()=>linkSheet(draw);
   };
   draw();
@@ -816,6 +818,22 @@ function linkSheet(after){
 
 /* ---------- Profile, notifs, about, search ---------- */
 /* ---------- Compte AfrikSol (connexion e-mail, base partagée) ---------- */
+/* Pont de fusion : backend.js y dépose l'historique relu de la base partagée
+   (commandes, rendez-vous, assurance, notifications) au format local. */
+window.AFK_MERGE = function(h){
+  if(!h) return;
+  S.ins = S.ins || {comp:{}, link:null};
+  S.ins.comp = S.ins.comp || {};
+  if(h.orders) S.orders = (S.orders||[]).filter(o=>!o.sb).concat(h.orders).sort((a,b)=>b.at-a.at);
+  if(h.appts) S.appts = (S.appts||[]).filter(a=>!a.sb).concat(h.appts);
+  if(h.insByProfile) for(const pid in h.insByProfile) S.ins.comp[pid] = h.insByProfile[pid];
+  if(h.notifs && h.notifs.length){
+    const seen = new Set((S.notifs||[]).map(n=>n.sbId).filter(Boolean));
+    const add = h.notifs.filter(n=>!seen.has(n.sbId));
+    if(add.length) S.notifs = add.concat(S.notifs||[]);
+  }
+  save();
+};
 function accountRow(){
   const on = window.AFK && AFK.connected();
   const s = on ? AFK.session() : null, p = on ? AFK.patient() : null;
@@ -856,7 +874,9 @@ function vAccount(){
       '<div class="f"><label>'+t('password')+'</label><input id="ap" type="password" autocomplete="'+(mode==='up'?'new-password':'current-password')+'" placeholder="••••••••"></div>'+
       '<div id="aerr"></div>'+
       '<div style="margin-top:14px"><button class="btn blue" id="ago">'+(mode==='up' ? t('sign_up') : t('sign_in'))+'</button></div>'+
+      '<div style="margin-top:10px"><button class="btn ghost" id="ademo">'+t('demo_continue')+'</button></div>'+
       '<p class="demo" style="margin-top:12px">'+t('account_note')+'</p></div>','profile');
+    document.getElementById('ademo').onclick = ()=>{ S.acctSeen = 1; save(); go('#/home'); };
     $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ mode=b.dataset.m; draw(); });
     document.getElementById('ago').onclick = ()=>{
       const email = document.getElementById('ae').value.trim(), pw = document.getElementById('ap').value;
@@ -865,7 +885,7 @@ function vAccount(){
       if(!email || !pw || (mode==='up' && !name)){ err(t('fill_required')); return; }
       const btn = document.getElementById('ago'); btn.disabled = true;
       const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
-      act.then(()=>{ toast(t('account_welcome')); route(); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
+      act.then(()=>{ S.acctSeen = 1; save(); toast(t('account_welcome')); go('#/home'); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
     };
   };
   draw();
@@ -874,9 +894,10 @@ function vProfile(){
   const me=prof('me');
   const menu=[['receipt','my_payments','#/payments'],['card','tile_card','#/card'],['shield','ins_title','#/insurance'],['calendar','tile_appts','#/appts'],['bag','my_orders','#/orders'],['file','tile_record','#/record'],['family','my_family','#/family'],['bell','notifications','#/notifs'],['globe','language','#/language'],['phone','em_contacts','#/record/contacts'],['info','about','#/about']];
   screen(topbar(t('profile'),'',{noBack:true})+'<div class="scroll"><div class="prof">'+avatar(me,62)+'<span><b>'+esc(fullName(me))+'</b><small>'+ISO(me.num)+' · '+me.city+'</small></span></div>'+
-    '<div style="margin:14px 0">'+healthCard(me)+'</div><div class="menu">'+accountRow()+menu.map(([ic,k,h])=>'<button class="row" data-go="'+h+'" data-mine="1"><span class="ic">'+I(ic,'sm')+'</span><span class="tx"><b>'+t(k)+'</b>'+(k==='language'?'<small>'+t('lang_note')+'</small>':'')+'</span>'+I('chev','sm chev')+'</button>').join('')+
+    '<div style="margin:14px 0">'+healthCard(me)+'</div><div class="menu">'+accountRow()+(window.AFK && AFK.connected() ? '<button class="row" id="lgo"><span class="ic">'+I('logout','sm')+'</span><span class="tx"><b>'+t('sign_out')+'</b><small>'+esc(AFK.session().user.email)+'</small></span></button>' : '')+menu.map(([ic,k,h])=>'<button class="row" data-go="'+h+'" data-mine="1"><span class="ic">'+I(ic,'sm')+'</span><span class="tx"><b>'+t(k)+'</b>'+(k==='language'?'<small>'+t('lang_note')+'</small>':'')+'</span>'+I('chev','sm chev')+'</button>').join('')+
     '<button class="row" id="rs"><span class="ic">'+I('refresh','sm')+'</span><span class="tx"><b>'+t('reset_demo')+'</b><small>'+t('reset_demo_s')+'</small></span></button></div><p class="demo">AfrikSol Santé · v2.0 · '+t('demo_note')+'</p></div>','profile');
   $app.querySelectorAll('[data-mine]').forEach(b=>b.addEventListener('click',()=>{ if(b.dataset.go!=='#/family'){ S.who='me'; save(); } }, true));
+  const lgo=document.getElementById('lgo'); if(lgo) lgo.onclick=()=>{ AFK.signOut(); toast(t('signed_out')); route(); };
   document.getElementById('rs').onclick=()=>sheet('<h3>'+t('reset_demo')+'</h3><p>'+t('reset_q')+'</p><button class="btn" id="y">'+t('reset_yes')+'</button>',s=>s.querySelector('#y').onclick=()=>{ try{ Object.keys(localStorage).filter(k=>k.startsWith('afk2_')&&k!=='afk2_lang').forEach(k=>localStorage.removeItem(k)); }catch(e){} location.hash='#/home'; location.reload(); });
 }
 function vNotifs(){

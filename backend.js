@@ -20,11 +20,15 @@
   var PROVIDERS = { 'Orange Money': 'orange_money', 'Moov Money': 'moov_money', 'Telecel Money': 'telecel_money' };
   function mapOp(opName) { return PROVIDERS[opName] || 'simulated'; }
 
+  var FKEY = 'afk2_family';
   var AFK = {
     orgByName: {},
+    nameByOrg: {},
+    slugByOrg: {},
     plansByCode: {},
     session: function () { return lsGet(SKEY); },
     patient: function () { return lsGet(PKEY); },
+    familyMap: function () { return lsGet(FKEY) || {}; },
     connected: function () { var s = lsGet(SKEY); return !!(s && s.access_token && s.user); }
   };
   window.AFK = AFK;
@@ -96,11 +100,14 @@
           if (p) return p;
           var fallback = s.user.name || String(email).split('@')[0];
           return AFK.ensurePatient(fallback);
+        }).then(function (p) {
+          AFK.pullHistory();
+          return p;
         });
       });
   };
   AFK.signOut = function () {
-    lsSet(SKEY, null); lsSet(PKEY, null);
+    lsSet(SKEY, null); lsSet(PKEY, null); lsSet(FKEY, null);
     return call('/auth/v1/logout', { method: 'POST' }, true).catch(function () {});
   };
   AFK.loadPatient = function () {
@@ -121,10 +128,35 @@
       return p;
     });
   };
+  /* Membre de famille : créé dans la base à la première synchronisation
+     le concernant, relié au titulaire (patient_family_members). */
+  AFK.ensureFamilyMember = function (profile) {
+    var fam = AFK.familyMap();
+    if (fam[profile.id]) return Promise.resolve(fam[profile.id]);
+    return rpc('register_family_member', {
+      p_full_name: (profile.first + ' ' + profile.last).trim(),
+      p_relationship: 'child',
+      p_birth_date: profile.born || null,
+      p_sex: profile.sex || null
+    }).then(function (m) {
+      m = first(m);
+      if (m) { fam[profile.id] = m; lsSet(FKEY, fam); }
+      return m;
+    });
+  };
+  /* Résout le dossier backend correspondant à un profil local de l'app */
+  AFK.patientFor = function (pid) {
+    if (!pid || pid === 'me') return AFK.loadPatient();
+    var fam = AFK.familyMap();
+    if (fam[pid]) return Promise.resolve(fam[pid]);
+    var prof = ((window.DATA || {}).PROFILES || []).find(function (x) { return x.id === pid; });
+    if (!prof) return Promise.resolve(null);
+    return AFK.ensureFamilyMember(prof);
+  };
 
   /* ---------------- Écritures vers la base partagée ---------------- */
-  function payFor(purpose, refId, amount, providerName, extra) {
-    var s = AFK.session(), p = AFK.patient();
+  function payFor(purpose, refId, amount, providerName, extra, beneficiary) {
+    var s = AFK.session(), p = beneficiary || AFK.patient();
     var body = { user_id: s.user.id, patient_id: p.id, purpose: purpose, reference_id: refId, provider: mapOp(providerName), amount_fcfa: amount };
     if (extra) Object.keys(extra).forEach(function (k) { body[k] = extra[k]; });
     return rest('/payments', { method: 'POST', prefer: 'return=representation', body: body }).then(function (pay) {
@@ -134,9 +166,19 @@
   }
 
   /* Commande du panier : une commande backend par pharmacie concernée
-     (les articles purement locaux, sans orgId, restent locaux). */
+     (les articles purement locaux, sans orgId, restent locaux).
+     Le bénéficiaire est le profil de la commande (moi ou un membre). */
   AFK.syncOrder = function (o) {
-    if (!AFK.connected() || !AFK.patient() || !o) return Promise.resolve(null);
+    if (!AFK.connected() || !o) return Promise.resolve(null);
+    return AFK.patientFor(o.pid).then(function (p) {
+      if (!p) return null;
+      return syncOrderFor(o, p);
+    }).catch(function (e) {
+      if (window.console) console.warn('[AfrikSol] Commande non synchronisée :', e.message);
+      return null;
+    });
+  };
+  function syncOrderFor(o, p) {
     var D = window.DATA || {};
     var groups = {};
     Object.keys(o.items || {}).forEach(function (mid) {
@@ -146,7 +188,7 @@
     });
     var orgIds = Object.keys(groups);
     if (!orgIds.length) return Promise.resolve(null);
-    var s = AFK.session(), p = AFK.patient(), feeGiven = false, receipts = [];
+    var s = AFK.session(), feeGiven = false, receipts = [];
     return orgIds.reduce(function (chain, orgId) {
       return chain.then(function () {
         var items = groups[orgId];
@@ -165,7 +207,7 @@
             return { order_id: ord.id, product_id: it.med.productId || null, product_name: it.med.name, unit_price_fcfa: it.med.price, quantity: it.qty };
           });
           return rest('/order_items', { method: 'POST', body: lines }).then(function () {
-            return payFor('order', ord.id, sub + fee, o.pay && o.pay.op, { order_id: ord.id });
+            return payFor('order', ord.id, sub + fee, o.pay && o.pay.op, { order_id: ord.id }, p);
           }).then(function (pay) {
             return rest('/receipts?payment_id=eq.' + pay.id + '&select=number').then(function (rc) {
               var r = first(rc);
@@ -185,48 +227,155 @@
 
   /* Rendez-vous : réservation réelle + paiement des frais si payé en mobile */
   AFK.syncAppt = function (a) {
-    if (!AFK.connected() || !AFK.patient() || !a) return Promise.resolve(null);
+    if (!AFK.connected() || !a) return Promise.resolve(null);
     var orgId = AFK.orgByName[normalizeName(a.facility)];
     if (!orgId) return Promise.resolve(null);
     var note = (a.doctor || '') + (a.spec ? ' · ' + a.spec : '');
-    return rpc('book_appointment', { p_org_id: orgId, p_scheduled_at: new Date(a.when).toISOString(), p_note: note })
-      .then(function (appt) {
+    return AFK.patientFor(a.pid).then(function (p) {
+      if (!p) return null;
+      var args = { p_org_id: orgId, p_scheduled_at: new Date(a.when).toISOString(), p_note: note };
+      var book = (a.pid && a.pid !== 'me')
+        ? rpc('book_appointment_for', Object.assign({ p_patient_id: p.id }, args))
+        : rpc('book_appointment', args);
+      return book.then(function (appt) {
         appt = first(appt);
         if (appt && a.pay) {
-          return payFor('appointment', appt.id, a.fee, a.pay.op, { appointment_id: appt.id }).then(function () { return appt; });
+          return payFor('appointment', appt.id, a.fee, a.pay.op, { appointment_id: appt.id }, p).then(function () { return appt; });
         }
         return appt;
-      }).then(function (appt) {
-        if (window.console) console.info('[AfrikSol] Rendez-vous enregistré dans la base partagée :', appt && appt.id);
-        return appt;
-      }).catch(function (e) {
-        if (window.console) console.warn('[AfrikSol] Synchronisation du rendez-vous en échec (rendez-vous local conservé) :', e.message);
-        return null;
       });
+    }).then(function (appt) {
+      if (appt && window.console) console.info('[AfrikSol] Rendez-vous enregistré dans la base partagée :', appt.id);
+      return appt;
+    }).catch(function (e) {
+      if (window.console) console.warn('[AfrikSol] Synchronisation du rendez-vous en échec (rendez-vous local conservé) :', e.message);
+      return null;
+    });
   };
 
-  /* Assurance : souscription + échéances */
-  AFK.syncInsurance = function (planN, amount, pay) {
-    if (!AFK.connected() || !AFK.patient()) return Promise.resolve(null);
+  /* Assurance : souscription + échéances (pour le profil concerné) */
+  AFK.syncInsurance = function (planN, amount, pay, pid) {
+    if (!AFK.connected()) return Promise.resolve(null);
     var plan = AFK.plansByCode['COMPLEMENTAIRE'];
     if (!plan) return Promise.resolve(null);
-    var s = AFK.session(), p = AFK.patient();
-    var total = plan.price_fcfa;
-    return rest('/insurance_subscriptions', {
-      method: 'POST', prefer: 'return=representation',
-      body: { patient_id: p.id, plan_id: plan.id, status: 'pending_payment', total_fcfa: total, installments_total: planN, installments_paid: 0, created_by: s.user.id }
-    }).then(function (sub) {
-      sub = first(sub);
-      return payFor('insurance', sub.id, amount, pay && pay.op).then(function () { return sub; });
+    var s = AFK.session();
+    return AFK.patientFor(pid || 'me').then(function (p) {
+      if (!p) return null;
+      return rest('/insurance_subscriptions', {
+        method: 'POST', prefer: 'return=representation',
+        body: { patient_id: p.id, plan_id: plan.id, status: 'pending_payment', total_fcfa: plan.price_fcfa, installments_total: planN, installments_paid: 0, created_by: s.user.id }
+      }).then(function (sub) {
+        sub = first(sub);
+        return payFor('insurance', sub.id, amount, pay && pay.op, null, p).then(function () { return sub; });
+      });
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Synchronisation de l\'assurance en échec (locale conservée) :', e.message);
       return null;
     });
   };
-  AFK.syncInstallment = function (subId, amount) {
-    if (!AFK.connected() || !AFK.patient() || !subId) return Promise.resolve(null);
-    return payFor('insurance', subId, amount, null).catch(function (e) {
+  AFK.syncInstallment = function (subId, amount, pid) {
+    if (!AFK.connected() || !subId) return Promise.resolve(null);
+    return AFK.patientFor(pid || 'me').then(function (p) {
+      if (!p) return null;
+      return payFor('insurance', subId, amount, null, null, p);
+    }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Échéance assurance non synchronisée :', e.message);
+      return null;
+    });
+  };
+
+  /* ---------------- Historique relu depuis la base partagée ----------------
+     Commandes, rendez-vous, assurance et notifications du compte (moi +
+     membres de famille connus) convertis dans les formats locaux de l'app
+     et fusionnés via window.AFK_MERGE (défini par app.js). */
+  AFK.pullHistory = function () {
+    if (!AFK.connected()) return Promise.resolve(null);
+    return AFK.loadPatient().then(function (me) {
+      if (!me) return null;
+      var fam = AFK.familyMap();
+      var localByPatient = {};
+      localByPatient[me.id] = 'me';
+      Object.keys(fam).forEach(function (lid) { if (fam[lid] && fam[lid].id) localByPatient[fam[lid].id] = lid; });
+      var inList = Object.keys(localByPatient).join(',');
+      var s = AFK.session();
+      return Promise.all([
+        rest('/orders?patient_id=in.(' + inList + ')&select=*,order_items(*)&order=created_at.desc&limit=50'),
+        rest('/payments?user_id=eq.' + s.user.id + '&select=*'),
+        rest('/receipts?select=number,payment_id'),
+        rest('/appointments?patient_id=in.(' + inList + ')&select=*&order=scheduled_at.desc&limit=50'),
+        rest('/insurance_subscriptions?patient_id=in.(' + inList + ')&select=*&order=created_at.desc'),
+        rest('/notifications?user_id=eq.' + s.user.id + '&select=*&order=created_at.desc&limit=30')
+      ]).then(function (res) {
+        var orders = res[0] || [], payments = res[1] || [], receipts = res[2] || [],
+            appts = res[3] || [], subs = res[4] || [], notifs = res[5] || [];
+        var payByOrder = {}, payByAppt = {}, rcByPay = {};
+        payments.forEach(function (p) { if (p.order_id) payByOrder[p.order_id] = p; if (p.appointment_id) payByAppt[p.appointment_id] = p; });
+        receipts.forEach(function (r) { rcByPay[r.payment_id] = r.number; });
+        var D = window.DATA || { MEDICINES: [], PHARMACIES: [], SPECIALTIES: [] };
+        var OP_NAMES = { orange_money: 'Orange Money', moov_money: 'Moov Money', telecel_money: 'Telecel Money', simulated: 'Paiement simulé' };
+        function medFor(item, orgId) {
+          var m = (D.MEDICINES || []).find(function (x) { return x.productId && item.product_id && x.productId === item.product_id; });
+          if (m) return m;
+          var nm = {
+            id: 'sbp-' + String(item.product_id || item.id || '').slice(0, 8),
+            name: item.product_name, cls: { fr: '', en: '', ar: '' },
+            price: item.unit_price_fcfa, ph: AFK.slugByOrg[orgId] || (D.PHARMACIES[0] && D.PHARMACIES[0].id) || 'etoile',
+            more: 0, orgId: orgId, productId: item.product_id || null, fromBackend: true
+          };
+          D.MEDICINES.push(nm);
+          return nm;
+        }
+        var mOrders = orders.filter(function (o) { return o.status !== 'cancelled'; }).map(function (o) {
+          var items = {};
+          (o.order_items || []).forEach(function (it) { var m = medFor(it, o.pharmacy_org_id); items[m.id] = (items[m.id] || 0) + it.quantity; });
+          var pay = payByOrder[o.id];
+          var out = {
+            id: 'CMD-' + o.id.replace(/-/g, '').slice(-6).toUpperCase(),
+            pid: localByPatient[o.patient_id] || 'me', items: items,
+            total: o.total_fcfa, mode: o.fulfillment, at: new Date(o.created_at).getTime(),
+            addr: o.delivery_address || '', ns: 0,
+            pay: pay ? { ref: rcByPay[pay.id] || ('PAY-' + pay.id.slice(0, 8).toUpperCase()), op: OP_NAMES[pay.provider] || pay.provider, paid: o.total_fcfa, tel: o.contact_phone || '' } : null,
+            sb: true, sbId: o.id, sbStatus: o.status
+          };
+          if (o.status === 'delivered') { out.done = new Date(o.updated_at).getTime(); out.ns = 99; }
+          return out;
+        });
+        var mAppts = appts.map(function (a) {
+          var parts = String(a.note || '').split(' · ');
+          var spec = (parts.length > 1 && (D.SPECIALTIES || []).indexOf(parts[1]) >= 0) ? parts[1] : 'gen';
+          var pay = payByAppt[a.id];
+          var fee = pay ? pay.amount_fcfa : 0;
+          return {
+            id: 'SB-' + a.id.slice(0, 8).toUpperCase(), pid: localByPatient[a.patient_id] || 'me',
+            doctor: parts[0] || '—', spec: spec, facility: AFK.nameByOrg[a.org_id] || 'Établissement',
+            when: new Date(a.scheduled_at).getTime(), fee: fee,
+            mode: a.paid ? 'mobile' : 'onsite',
+            pay: (a.paid && pay) ? { ref: rcByPay[pay.id] || ('PAY-' + pay.id.slice(0, 8).toUpperCase()), op: OP_NAMES[pay.provider] || pay.provider, paid: fee, tel: '' } : null,
+            payAt: pay ? new Date(pay.created_at).getTime() : null,
+            status: a.status === 'cancelled' ? 'cx' : 'ok',
+            created: new Date(a.created_at).getTime(), sb: true, sbId: a.id
+          };
+        });
+        var insByProfile = {};
+        subs.forEach(function (sb) {
+          var lid = localByPatient[sb.patient_id];
+          if (!lid || insByProfile[lid] || sb.status === 'cancelled') return;
+          insByProfile[lid] = {
+            plan: sb.installments_total, paid: sb.installments_paid,
+            start: sb.start_date ? new Date(sb.start_date).getTime() : new Date(sb.created_at).getTime(),
+            ref: 'SB-' + sb.id.slice(0, 6).toUpperCase(), sbSub: sb.id, sb: true
+          };
+        });
+        var ICONS = { payment: 'receipt', order: 'bag', appointment: 'calendar', insurance: 'shield', system: 'bell' };
+        var mNotifs = notifs.map(function (n) {
+          return { icon: ICONS[n.kind] || 'bell', title: n.title, body: n.body || '', at: new Date(n.created_at).getTime(), read: !!n.read_at, sbId: n.id };
+        });
+        if (window.AFK_MERGE) window.AFK_MERGE({ orders: mOrders, appts: mAppts, insByProfile: insByProfile, notifs: mNotifs });
+        if (window.console) console.info('[AfrikSol] Historique relu depuis la base partagée :', mOrders.length, 'commande(s),', mAppts.length, 'rendez-vous,', mNotifs.length, 'notification(s)');
+        return { orders: mOrders.length, appts: mAppts.length };
+      });
+    }).catch(function (e) {
+      if (window.console) console.warn('[AfrikSol] Historique non chargé :', e.message);
       return null;
     });
   };
@@ -257,7 +406,10 @@
 
     /* Annuaire complet (sert aussi à relier les rendez-vous aux établissements) */
     if (Array.isArray(directory)) {
-      directory.forEach(function (o) { AFK.orgByName[normalizeName(o.name)] = o.id; });
+      directory.forEach(function (o) {
+        AFK.orgByName[normalizeName(o.name)] = o.id;
+        AFK.nameByOrg[o.id] = o.name;
+      });
     }
     /* Formules d'assurance par code */
     if (Array.isArray(plans)) {
@@ -271,6 +423,7 @@
       var local = D.PHARMACIES.find(function (p) { return p.name === o.name; });
       if (local) { slugByOrg[o.id] = local.id; matchedSlugs[local.id] = true; }
     });
+    AFK.slugByOrg = slugByOrg;
     if (!Object.keys(slugByOrg).length) return;
 
     /* Nombre d'autres pharmacies proposant le même produit */
@@ -324,6 +477,7 @@
 
     window.AFK_BACKEND = { connected: true, source: 'supabase', pharmacies: Object.keys(slugByOrg).length, produits: fromBackend.length };
     if (window.console) console.info('[AfrikSol] Catalogue chargé depuis le backend partagé :', window.AFK_BACKEND);
+    if (AFK.connected()) AFK.pullHistory();
 
     /* Si l'écran pharmacie est déjà affiché, le rafraîchir avec les données du backend */
     var h = (window.location && window.location.hash) || '';
