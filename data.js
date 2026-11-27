@@ -29,6 +29,8 @@ window.DATA = (function(){
     pub:[
       {id:'cnhu', name:'CHU Yalgado Ouédraogo', area:'Secteur 4 · Ouagadougou', km:2.1, docs:6},
       {id:'mel', name:'CHU Pédiatrique Charles de Gaulle', area:'Paspanga · Ouagadougou', km:1.4, docs:5},
+      {id:'cocotiers', name:'CHU de Tengandogo', area:'Ouaga 2000 · Ouagadougou', km:7.6, docs:6},
+      {id:'mahouna', name:'CHU Bogodogo', area:'Bogodogo · Ouagadougou', km:5.9, docs:5},
       {id:'suru', name:'Hôpital de district de Boulmiougou', area:'Boulmiougou · Ouagadougou', km:3.6, docs:4},
       {id:'akpakpa', name:'CSPS de Karpala', area:'Karpala · Ouagadougou', km:4.2, docs:3},
       {id:'calavi', name:'Hôpital de district de Pissy', area:'Pissy · Ouagadougou', km:12.8, docs:4},
@@ -36,11 +38,11 @@ window.DATA = (function(){
       {id:'chudb', name:'CHU Sourô Sanou', area:'Bobo-Dioulasso', km:415, docs:5}
     ],
     clin:[
-      {id:'cocotiers', name:'Polyclinique Notre Dame de la Paix', area:'Koulouba · Ouagadougou', km:2.6, docs:5},
-      {id:'mahouna', name:'Hôpital Saint-Camille', area:'Patte d\'Oie · Ouagadougou', km:2.0, docs:4},
-      {id:'atinkanmey', name:'Clinique El Fateh', area:'Zone du Bois · Ouagadougou', km:3.4, docs:5},
-      {id:'posam', name:'Clinique Saint-Jean', area:'Dassasgho · Ouagadougou', km:2.2, docs:4},
-      {id:'serena', name:'Clinique du Cœur', area:'Ouaga 2000 · Ouagadougou', km:6.8, docs:3}
+      {id:'atinkanmey', name:'Hôpital Saint-Camille', area:'Centre-ville · Ouagadougou', km:0.7, docs:4},
+      {id:'posam', name:'Polyclinique Notre Dame de la Paix', area:'Koulouba · Ouagadougou', km:0.6, docs:5},
+      {id:'serena', name:'Clinique El Fateh', area:'Zone du Bois · Ouagadougou', km:4.5, docs:5},
+      {id:'sevi', name:'Clinique Saint-Jean', area:'Dassasgho · Ouagadougou', km:5.8, docs:4},
+      {id:'hagnon', name:'Clinique du Cœur', area:'Patte d\'Oie · Ouagadougou', km:4.3, docs:3}
     ],
     cab:[
       {id:'cab1', name:'Cabinet médical de Wemtenga', area:'Wemtenga · Ouagadougou', km:1.9, docs:2},
@@ -199,23 +201,23 @@ window.DATA = (function(){
   /* ---------- Pharmacie ---------- */
   const PHARMACIES = [
     {id:'etoile', name:'Pharmacie de l\'Hôpital', area:'Pissy', km:0.8, garde:true, hours:'19:00 – 08:00'},
-    {id:'cocotiers', name:'Pharmacie Saint-Camille', area:'Centre-ville', km:1.4, garde:true, hours:'19:00 – 08:00'},
+    {id:'stcamille', name:'Pharmacie Saint-Camille', area:'Centre-ville', km:1.4, garde:true, hours:'19:00 – 08:00'},
     {id:'gbegamey', name:'Pharmacie Wemtenga', area:'Wemtenga', km:2.1, garde:true, hours:'19:00 – 08:00'},
     {id:'port', name:'Pharmacie du Centre', area:'Koulouba', km:2.9, garde:false, hours:'08:00 – 20:00'},
     {id:'fidjrosse', name:'Pharmacie de Dassasgho', area:'Dassasgho', km:3.2, garde:false, hours:'08:00 – 21:00'},
-    {id:'calavi', name:'Pharmacie de Kossodo', area:'Kossodo', km:11.5, garde:false, hours:'08:00 – 21:00'}
+    {id:'kossodo', name:'Pharmacie de Kossodo', area:'Kossodo', km:11.5, garde:false, hours:'08:00 – 21:00'}
   ];
   const MEDICINES = [
     {id:'para', name:'Paracétamol 500 mg', cls:{fr:'Antalgique / Antipyrétique · Boîte de 16 comprimés',en:'Painkiller / Antipyretic · Box of 16 tablets',ar:'مسكن وخافض للحرارة · علبة 16 قرصًا'}, price:500, ph:'etoile', more:8},
-    {id:'parasy', name:'Paracétamol sirop enfant', cls:{fr:'Antipyrétique enfant · Flacon 100 ml',en:'Children’s antipyretic · 100 ml bottle',ar:'خافض حرارة للأطفال · قارورة 100 مل'}, price:1200, ph:'cocotiers', more:6},
+    {id:'parasy', name:'Paracétamol sirop enfant', cls:{fr:'Antipyrétique enfant · Flacon 100 ml',en:'Children’s antipyretic · 100 ml bottle',ar:'خافض حرارة للأطفال · قارورة 100 مل'}, price:1200, ph:'stcamille', more:6},
     {id:'cta', name:'Artéméther + Luméfantrine', cls:{fr:'Antipaludique CTA · Boîte de 24 comprimés',en:'ACT antimalarial · Box of 24 tablets',ar:'مضاد ملاريا · علبة 24 قرصًا'}, price:1500, ph:'etoile', more:5, rx:true},
-    {id:'amox', name:'Amoxicilline 500 mg', cls:{fr:'Antibiotique · Boîte de 12 gélules',en:'Antibiotic · Box of 12 capsules',ar:'مضاد حيوي · علبة 12 كبسولة'}, price:1800, ph:'cocotiers', more:6, rx:true},
+    {id:'amox', name:'Amoxicilline 500 mg', cls:{fr:'Antibiotique · Boîte de 12 gélules',en:'Antibiotic · Box of 12 capsules',ar:'مضاد حيوي · علبة 12 كبسولة'}, price:1800, ph:'stcamille', more:6, rx:true},
     {id:'sro', name:'SRO + Zinc', cls:{fr:'Réhydratation orale · Kit enfant',en:'Oral rehydration · Child kit',ar:'محلول إماهة فموي · طقم للأطفال'}, price:600, ph:'gbegamey', more:9},
     {id:'ibu', name:'Ibuprofène 400 mg', cls:{fr:'Anti-inflammatoire · Boîte de 20 comprimés',en:'Anti-inflammatory · Box of 20 tablets',ar:'مضاد التهاب · علبة 20 قرصًا'}, price:900, ph:'etoile', more:7},
     {id:'fer', name:'Fer + Acide folique', cls:{fr:'Supplément · Boîte de 30 comprimés',en:'Supplement · Box of 30 tablets',ar:'مكمّل · علبة 30 قرصًا'}, price:1200, ph:'gbegamey', more:6},
     {id:'vitc', name:'Vitamine C 500 mg', cls:{fr:'Vitamine · Tube de 10 comprimés',en:'Vitamin · Tube of 10 tablets',ar:'فيتامين · أنبوب 10 أقراص'}, price:1000, ph:'fidjrosse', more:7},
     {id:'moust', name:'Moustiquaire imprégnée', cls:{fr:'Prévention du paludisme · 2 places',en:'Malaria prevention · double bed',ar:'ناموسية معالجة · سرير مزدوج'}, price:3000, ph:'port', more:4},
-    {id:'salbu', name:'Salbutamol 100 µg', cls:{fr:'Bronchodilatateur · Aérosol 200 doses',en:'Bronchodilator · Inhaler 200 doses',ar:'موسع قصبات · بخاخ 200 جرعة'}, price:3500, ph:'cocotiers', more:3, rx:true},
+    {id:'salbu', name:'Salbutamol 100 µg', cls:{fr:'Bronchodilatateur · Aérosol 200 doses',en:'Bronchodilator · Inhaler 200 doses',ar:'موسع قصبات · بخاخ 200 جرعة'}, price:3500, ph:'stcamille', more:3, rx:true},
     {id:'amlo', name:'Amlodipine 5 mg', cls:{fr:'Antihypertenseur · Boîte de 30 comprimés',en:'Antihypertensive · Box of 30 tablets',ar:'خافض ضغط · علبة 30 قرصًا'}, price:2500, ph:'port', more:4, rx:true},
     {id:'metf', name:'Metformine 500 mg', cls:{fr:'Antidiabétique · Boîte de 30 comprimés',en:'Antidiabetic · Box of 30 tablets',ar:'مضاد السكري · علبة 30 قرصًا'}, price:2000, ph:'etoile', more:5, rx:true}
   ];

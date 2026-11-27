@@ -17,6 +17,14 @@
   function lsSet(k, v) { try { if (v) localStorage.setItem(k, JSON.stringify(v)); else localStorage.removeItem(k); } catch (e) {} }
   function first(d) { return Array.isArray(d) ? d[0] : d; }
   function normalizeName(n) { return String(n || '').split('—')[0].trim().toLowerCase(); }
+  /* Messages traduits : backend.js n'a pas accès au t() d'app.js — on lit
+     la langue mémorisée (afk2_lang) et le dictionnaire global window.I18N. */
+  function msg(key) {
+    var lang = 'fr';
+    try { lang = JSON.parse(localStorage.getItem('afk2_lang')) || 'fr'; } catch (e) {}
+    var d = window.I18N || {};
+    return (d[lang] && d[lang][key]) || (d.fr && d.fr[key]) || key;
+  }
   var PROVIDERS = { 'Orange Money': 'orange_money', 'Moov Money': 'moov_money', 'Telecel Money': 'telecel_money' };
   function mapOp(opName) { return PROVIDERS[opName] || 'simulated'; }
 
@@ -87,7 +95,7 @@
     return call('/auth/v1/signup', { method: 'POST', body: { email: email, password: password, data: { full_name: fullName } } }, false)
       .then(function (data) {
         var s = saveAuth(data, email);
-        if (!s) throw new Error('Compte créé, mais la session n\'a pas démarré. Essayez de vous connecter.');
+        if (!s) throw new Error(msg('err_session'));
         return AFK.ensurePatient(fullName);
       });
   };
@@ -95,7 +103,7 @@
     return call('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: email, password: password } }, false)
       .then(function (data) {
         var s = saveAuth(data, email);
-        if (!s) throw new Error('Connexion impossible.');
+        if (!s) throw new Error(msg('err_signin'));
         return AFK.loadPatient().then(function (p) {
           if (p) return p;
           var fallback = s.user.name || String(email).split('@')[0];
@@ -110,24 +118,67 @@
     lsSet(SKEY, null); lsSet(PKEY, null); lsSet(FKEY, null);
     return call('/auth/v1/logout', { method: 'POST' }, true).catch(function () {});
   };
+  /* Mot de passe oublié : Supabase envoie le lien de réinitialisation
+     par e-mail (endpoint /auth/v1/recover). */
+  AFK.resetPassword = function (email) {
+    return call('/auth/v1/recover', { method: 'POST', body: { email: email } }, false);
+  };
   AFK.loadPatient = function () {
     var s = AFK.session();
     if (!s) return Promise.resolve(null);
     var cached = AFK.patient();
-    if (cached && cached.user_id === s.user.id) return Promise.resolve(cached);
+    if (cached && cached.user_id === s.user.id) { AFK.applyRealProfile(cached); return Promise.resolve(cached); }
     return rest('/patients?user_id=eq.' + s.user.id + '&select=*').then(function (rows) {
       var p = first(rows) || null;
-      if (p) lsSet(PKEY, p);
+      if (p) { lsSet(PKEY, p); AFK.applyRealProfile(p); }
       return p;
     });
   };
   AFK.ensurePatient = function (fullName) {
     return rpc('register_patient', { p_full_name: fullName }).then(function (p) {
       p = first(p);
-      if (p) lsSet(PKEY, p);
+      if (p) { lsSet(PKEY, p); AFK.applyRealProfile(p); }
       return p;
     });
   };
+  /* Identité réelle : quand un compte est connecté, le profil local « me »
+     lu par prof()/cur() (accueil, carte santé + QR, SOS, dossier, famille)
+     est alimenté par le dossier patient du backend — nom, numéro de carte
+     santé, date de naissance, groupe sanguin et allergie si connus — au
+     lieu du profil de démonstration. Point d'injection unique : appelé par
+     loadPatient/ensurePatient et au démarrage (dossier en cache local). */
+  AFK.applyRealProfile = function (p) {
+    var D = window.DATA;
+    if (!D || !D.PROFILES || !p) return;
+    var me = null;
+    D.PROFILES.forEach(function (x) { if (x.id === 'me') me = x; });
+    if (!me) return;
+    var fn = p.first_name || '', ln = p.last_name || '';
+    if (!fn && !ln && p.full_name) {
+      var parts = String(p.full_name).trim().split(/\s+/);
+      fn = parts[0] || ''; ln = parts.slice(1).join(' ');
+    }
+    if (fn) me.first = fn;
+    if (ln) me.last = ln;
+    if (p.health_id) me.num = p.health_id;
+    var born = p.birth_date || p.date_of_birth || p.born;
+    if (born) me.born = String(born).slice(0, 10);
+    if (p.sex) me.sex = p.sex;
+    var blood = p.blood_group || p.blood;
+    if (blood) me.blood = blood;
+    me.real = true;
+    /* Allergie connue la plus récente (affichée notamment sur l'écran SOS) */
+    rest('/allergies?patient_id=eq.' + p.id + '&select=label&order=recorded_at.desc&limit=1').then(function (rows) {
+      var a = first(rows);
+      if (a && a.label) me.allergy = { fr: a.label, en: a.label, ar: a.label };
+    }).catch(function () {});
+  };
+  /* Démarrage : session + dossier déjà en cache local → identité réelle
+     injectée immédiatement, avant le premier écran. */
+  (function () {
+    var cachedP = AFK.patient();
+    if (AFK.connected() && cachedP) AFK.applyRealProfile(cachedP);
+  })();
   /* Membre de famille : créé dans la base à la première synchronisation
      le concernant, relié au titulaire (patient_family_members). */
   AFK.ensureFamilyMember = function (profile) {
@@ -165,6 +216,13 @@
     });
   }
 
+  /* Échec de synchronisation : app.js est prévenu (événement
+     « afk-sync-fail ») pour marquer l'élément « en attente », afficher un
+     message discret et réessayer au retour du réseau. */
+  function syncFailed(kind, ref) {
+    try { window.dispatchEvent(new CustomEvent('afk-sync-fail', { detail: { kind: kind, ref: ref || null } })); } catch (e) {}
+  }
+
   /* Commande du panier : une commande backend par pharmacie concernée
      (les articles purement locaux, sans orgId, restent locaux).
      Le bénéficiaire est le profil de la commande (moi ou un membre). */
@@ -175,6 +233,7 @@
       return syncOrderFor(o, p);
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Commande non synchronisée :', e.message);
+      syncFailed('order', o && o.id);
       return null;
     });
   };
@@ -221,6 +280,7 @@
       return receipts;
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Synchronisation de la commande en échec (commande locale conservée) :', e.message);
+      syncFailed('order', o && o.id);
       return null;
     });
   };
@@ -249,6 +309,7 @@
       return appt;
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Synchronisation du rendez-vous en échec (rendez-vous local conservé) :', e.message);
+      syncFailed('appt', a && a.id);
       return null;
     });
   };
@@ -287,6 +348,7 @@
       });
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Synchronisation de l\'assurance en échec (locale conservée) :', e.message);
+      syncFailed('insurance', pid || 'me');
       return null;
     });
   };
@@ -297,6 +359,7 @@
       return payFor('insurance', subId, amount, null, null, p);
     }).catch(function (e) {
       if (window.console) console.warn('[AfrikSol] Échéance assurance non synchronisée :', e.message);
+      syncFailed('insurance', pid || 'me');
       return null;
     });
   };

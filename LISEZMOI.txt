@@ -73,3 +73,31 @@ VAGUE 1 — CORRECTIFS DU CAHIER BF (faits le 27/11/2026, assets v14 / SW v8)
 - Langues : le sélecteur ne propose plus que français, anglais et arabe
   (les dictionnaires mooré/dioula étaient vides).
 - Après connexion : écran « Bienvenue, Prénom ! » (~3 s, cahier P8).
+
+VAGUE 3 — CORRECTIFS UX (faits le 27/11/2026, assets v15 / SW v9)
+- Données : identifiants d'établissements réalignés entre urgences et
+  réservation (CHU de Tengandogo et CHU Bogodogo ajoutés à la réservation ;
+  Saint-Camille, Notre Dame de la Paix, El Fateh, Saint-Jean et Clinique du
+  Cœur corrigés) ; plaques des livreurs au format BF.
+- Compte connecté : l'identité affichée (accueil, carte + QR, SOS, dossier)
+  est celle du patient réel du backend, plus le profil de démonstration.
+- Réservation : un seul rendez-vous créé même en cas de double tap.
+- Paiement : bouton « Annuler » pendant l'attente Mobile Money (annuler ne
+  valide jamais le paiement) ; plus de numéro fictif pré-rempli — le
+  téléphone du compte est proposé s'il est connu.
+- Synchronisation : si une écriture échoue, l'élément est marqué « Synchro
+  en attente », un message discret s'affiche et la synchronisation est
+  réessayée au retour du réseau et au chargement de l'app.
+- Assurance : note RAMU corrigée (prise en charge 70 %, affiliation CNAMU) ;
+  badge « Actif » seulement si l'affiliation est connue ; les profils
+  enfants peuvent basculer vers le profil du titulaire.
+- Compte : lien « Mot de passe oublié » (réinitialisation par e-mail via
+  Supabase), contrôle du format d'e-mail, messages d'erreur traduits.
+- Suivi de commande : pour les commandes du backend, les étapes suivent le
+  statut réel (la chronologie accélérée reste propre à la démo).
+- Déconnexion : les rendez-vous et commandes du compte sont purgés de
+  l'appareil ; zoom de la page à nouveau autorisé ; boutons quantité et
+  créneaux plus grands au toucher.
+- Hors ligne : les fichiers JS/CSS sont servis en stale-while-revalidate
+  (la nouvelle version arrive en arrière-plan, sans bloquer l'utilisateur
+  sur une ancienne).

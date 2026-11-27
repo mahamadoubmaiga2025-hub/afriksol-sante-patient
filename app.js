@@ -10,6 +10,7 @@ const store = {
 };
 const S = {
   lang: store.get('lang', null),
+  acctSeen: store.get('acctSeen', 0),
   who: store.get('who', 'me'),
   appts: store.get('appts', null),
   cart: store.get('cart', {}),
@@ -18,7 +19,7 @@ const S = {
   notifs: store.get('notifs', null),
   pos: null, posState: 'unknown'
 };
-function save(){ ['who','appts','cart','orders','ins','notifs'].forEach(k=>store.set(k,S[k])); }
+function save(){ ['who','appts','cart','orders','ins','notifs','acctSeen'].forEach(k=>store.set(k,S[k])); }
 
 /* ---------- i18n ---------- */
 function L(){ return S.lang || 'fr'; }
@@ -218,7 +219,7 @@ function upcoming(pid){ const now=Date.now(); return S.appts.filter(a=>a.status=
 function apptCard(a, full){
   const p=prof(a.pid||'me');
   return '<div class="card appt"><div class="row" style="align-items:flex-start"><div class="tx">'+(a.pid&&a.pid!=='me'?'<span class="forwho">'+avatar(p,20)+t('appt_for',{name:nm(p.first)})+'</span>':'')+'<b>'+esc(a.doctor)+'</b><div class="meta">'+fmtDT(a.when)+' · '+esc(a.facility)+'</div><div class="meta">'+t('spec_'+a.spec)+'</div></div>'+
-    (a.status==='ok'?badge('green',t('confirmed')):badge('gray',t('cancelled')))+'</div>'+
+    (a.status==='ok'?badge('green',t('confirmed')):badge('gray',t('cancelled')))+(a.pendingSync?badge('orange',t('sync_badge')):'')+'</div>'+
     (a.status==='ok'?'<div class="appt acts"><button class="lnk" data-cancel="'+a.id+'">'+t('cancel_appt')+'</button>'+(full?'':'<button class="lnk" data-go="#/appts">'+t('details')+'</button>')+'</div>':'')+'</div>';
 }
 function bindCancel(){
@@ -249,7 +250,7 @@ function vHome(){
     '<div class="sec">'+t('next_appt')+'</div>'+(a?apptCard(a):'<div class="card empty">'+t('no_appt')+'<div style="margin-top:12px"><button class="btn sm" data-go="#/book">'+I('calplus','sm')+t('book_now')+'</button></div></div>')+
     '<div class="sec">'+t('my_family')+'<button data-go="#/family">'+t('details')+'</button></div>'+
     '<div class="famstrip">'+kids.map(k=>'<button data-act="'+k.id+'">'+avatar(k,52)+'<b>'+esc(k.first)+'</b><small>'+t('yrs',{n:ageOf(k)})+'</small></button>').join('')+'<button data-go="#/family">'+'<span class="av add">'+I('plus')+'</span><b>'+t('add_child')+'</b></button></div>'+
-    '<div class="sec">'+t('near_you')+'</div><div class="list">'+
+    '<div class="sec">'+t('near_you')+(S.posState==='on'?'':'<span style="font-size:12px;color:var(--mute);font-weight:500">'+t('from_cotonou')+'</span>')+'</div><div class="list">'+
     '<div class="row hrow"><span class="ic">'+I('hospital')+'</span><span class="tx"><b>'+esc(near.name)+'</b><small>≈ '+fmtKm(near.d)+' · '+t('open_24')+'</small></span><a class="mini call" href="tel:'+near.tel+'" aria-label="'+t('call')+'">'+I('phone','sm')+'</a></div>'+
     [['hospital','tile_hosp','tile_hosp_s','#/hospitals'],['store','tile_garde','tile_garde_s','#/pharmacies']].map(([ic,k,s,h])=>'<button class="row" data-go="'+h+'"><span class="ic">'+I(ic)+'</span><span class="tx"><b>'+t(k)+'</b><small>'+t(s)+'</small></span>'+I('chev','sm chev')+'</button>').join('')+'</div>'+
     '<form class="search" id="sf">'+I('search','sm')+'<input id="q" placeholder="'+t('search_ph')+'"></form>'+
@@ -348,6 +349,7 @@ function vPharmacies(){
 
 /* ---------- Booking ---------- */
 let B = {};
+let bkBusy = false; /* garde anti-double-tap : une seule réservation à la fois */
 function bookTop(step, sub){ return topbar(t('book_appt'), t('step_x',{n:step})+' — '+sub)+'<div class="scroll">'+actingBanner()+'<div class="prog"><div class="l"><span>'+t('step_of',{n:step})+'</span><span>'+(step*20)+'%</span></div><div class="b"><i style="width:'+(step*20)+'%"></i></div></div>'; }
 function vBook(args){
   if(args[0]==='fac'){ B={type:args[1], fac:args[2], pid:S.who}; return go('#/book/2'); }
@@ -415,7 +417,7 @@ function bStep4(){
     screen(bookTop(4,t('doctor'))+'<div style="font-size:13px;color:var(--mute);margin-bottom:10px">'+esc(fac.name)+' · '+t('spec_'+B.spec)+'</div>'+
       docs.map(d=>{ const sl=slotsOf(d); return '<div class="doc"><div class="h"><span class="av">'+d.ini+'</span><span><b>'+d.name+'</b><small>'+esc(d.specLabel||t('spec_'+B.spec))+'</small>'+(d.rating?'<div class="star">★ '+d.rating+' <span style="color:var(--mute);font-weight:500">('+d.reviews+')</span></div>':'')+'</span></div>'+
         '<div class="info">'+esc(fac.name)+(d.exp?' · '+t('years_exp',{n:d.exp}):'')+' · '+fmtKm(fac.km)+'</div><div class="slots">'+
-        sl.map(s=>'<button class="slot '+(B.doc===d.id&&B.when===s?'on':'')+'" data-d="'+d.id+'" data-s="'+s+'">'+fmtDate(s,{weekday:'short',day:'numeric'})+' · '+ISO(fmtTime(s))+'</button>').join('')+
+        (sl.length?sl.map(s=>'<button class="slot '+(B.doc===d.id&&B.when===s?'on':'')+'" data-d="'+d.id+'" data-s="'+s+'">'+fmtDate(s,{weekday:'short',day:'numeric'})+' · '+ISO(fmtTime(s))+'</button>').join(''):'<span style="font-size:13px;color:var(--mute)">'+t('no_slots')+'</span>')+
         '</div><button class="btn" data-pick="'+d.id+'" '+(B.doc===d.id&&B.when?'':'disabled')+'>'+t('choose_doc')+' · '+money(fee)+'</button></div>'; }).join('')+'</div>','appt');
     const sc=$app.querySelector('.scroll'); sc.scrollTop=keepScroll;
     $app.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ keepScroll=sc.scrollTop; B.doc=b.dataset.d; B.when=+b.dataset.s; draw(docs, slotsOf); });
@@ -430,7 +432,7 @@ function bStep4(){
   const orgId=(window.AFK && AFK.connected() && AFK.patient() && AFK.orgByName)
     ? AFK.orgByName[String(fac.name||'').split('—')[0].trim().toLowerCase()] : null;
   if(!orgId || !AFK.directoryDoctors || !AFK.freeSlots){ drawDemo(); return; }
-  screen(bookTop(4,t('doctor'))+'<div class="card empty" style="margin-top:10px"><div class="spin" style="margin:0 auto"></div></div></div>','appt');
+  screen(bookTop(4,t('doctor'))+'<div class="card empty" style="margin-top:10px"><div class="spin" style="margin:0 auto"></div><p style="margin-top:10px">'+t('loading_doctors')+'</p></div></div>','appt');
   const isoDay=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   AFK.patientFor(B.pid||'me').then(pat=>{
     if(!pat || !pat.id) throw new Error('no-patient');
@@ -454,6 +456,7 @@ function bStep4(){
 }
 function bStep5(){
   if(!B.docName) return go('#/book');
+  bkBusy = false;
   const p=prof(B.pid||'me');
   screen(topbar(t('appt_summary'),'')+'<div class="scroll"><div class="card sum"><div class="h">'+t('consult_details')+'</div>'+
     '<div class="kv"><span>'+t('patient')+'</span><b>'+esc(fullName(p))+'</b></div><div class="kv"><span>'+t('health_no')+'</span><b>'+ISO(p.num)+'</b></div>'+
@@ -461,15 +464,24 @@ function bStep5(){
     '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('consult_fee')+'</span><b>'+money(B.fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(B.fee)+'</b></div></div>'+
     '<div class="alert green">'+I('shield','sm')+'<span>'+t('arch_note')+'</span></div>'+
     '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(B.fee)+')</button><div style="height:10px"></div><button class="btn ghost" id="pc">'+t('pay_at_desk')+'</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
-  document.getElementById('pm').onclick=()=>payFlow(B.fee, ref=>finishBooking('mobile',ref));
-  document.getElementById('pc').onclick=()=>finishBooking('onsite', null);
+  const lockBtns=()=>{ ['pm','pc'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled=true; }); };
+  document.getElementById('pm').onclick=()=>{ lockBtns(); payFlow(B.fee, ref=>finishBooking('mobile',ref)); };
+  document.getElementById('pc').onclick=()=>{ lockBtns(); finishBooking('onsite', null); };
+}
+/* Téléphone du compte si connu (dossier backend, sinon dernier paiement) —
+   jamais de numéro fictif pré-rempli. */
+function accountPhone(){
+  try{ const p = window.AFK && AFK.patient && AFK.patient(); if(p && (p.phone || p.phone_number)) return String(p.phone || p.phone_number); }catch(e){}
+  const ap=(S.appts||[]).find(a=>a.pay && a.pay.tel); if(ap) return ap.pay.tel;
+  const or=(S.orders||[]).find(o=>o.pay && o.pay.tel); if(or) return or.pay.tel;
+  return '';
 }
 function payFlow(amount, done){
   let op='orange';
   const fee=Math.round(amount*0.0125);
   const draw=s=>{
     s.querySelector('.sheet').innerHTML='<div class="grab"></div><h3>'+t('mobile_pay')+'</h3><p>'+t('choose_op')+'</p><div class="ops">'+D.OPERATORS.map(o=>'<button class="op '+(op===o.id?'on':'')+'" data-op="'+o.id+'"><i style="background:'+o.c+';color:'+o.fg+'">'+o.ini+'</i>'+o.name+'</button>').join('')+'</div>'+
-      '<div class="f"><label>'+t('phone_no')+'</label><input id="pn" inputmode="tel" dir="ltr" placeholder="70 XX XX XX XX" value="70 00 00 00"><div class="hint">'+t('phone_hint')+'</div></div>'+
+      '<div class="f"><label>'+t('phone_no')+'</label><input id="pn" inputmode="tel" dir="ltr" placeholder="70 XX XX XX XX" value="'+esc(accountPhone())+'"><div class="hint">'+t('phone_hint')+'</div></div>'+
       '<div class="kv"><span>'+t('amount')+'</span><b>'+money(amount)+'</b></div><div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(amount+fee)+'</b></div>'+
       '<div style="height:14px"></div><button class="btn blue" id="pv">'+t('pay')+' '+money(amount+fee)+'</button>';
     s.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{ const v=s.querySelector('#pn').value; op=b.dataset.op; draw(s); s.querySelector('#pn').value=v; });
@@ -478,13 +490,24 @@ function payFlow(amount, done){
       if(v.length===11 && v.indexOf('226')===0) v=v.slice(3);
       if(!/^[567]\d{7}$/.test(v)){ s.querySelector('.f').classList.add('err'); toast(t('phone_invalid')); return; }
       const opName=D.OPERATORS.find(o=>o.id===op).name;
-      s.querySelector('.sheet').innerHTML='<div class="grab"></div><div style="text-align:center;padding:20px 0"><div class="spin"></div><h3 style="margin-top:14px">'+t('confirm_on_phone')+'</h3><p>'+t('confirm_on_phone_s',{op:opName})+'</p></div>';
-      setTimeout(()=>{ closeSheet(); done({op:opName, paid:amount+fee, ref:'PAY-'+String(Date.now()).slice(-8), tel:v}); }, 2200);
+      s.querySelector('.sheet').innerHTML='<div class="grab"></div><div style="text-align:center;padding:20px 0"><div class="spin"></div><h3 style="margin-top:14px">'+t('confirm_on_phone')+'</h3><p>'+t('confirm_on_phone_s',{op:opName})+'</p></div><button class="btn ghost" id="pcx">'+t('pay_cancel')+'</button>';
+      /* Annulation pendant l'attente : le minuteur est annulé et done()
+         n'est jamais exécuté — bouton Annuler ou fermeture de la feuille. */
+      let obs=null;
+      function stopWatch(){ if(obs){ obs.disconnect(); obs=null; } }
+      const timer=setTimeout(()=>{ stopWatch(); closeSheet(); done({op:opName, paid:amount+fee, ref:'PAY-'+String(Date.now()).slice(-8), tel:v}); }, 2200);
+      if(window.MutationObserver){
+        obs=new MutationObserver(()=>{ if(!document.getElementById('sheet')){ clearTimeout(timer); stopWatch(); } });
+        obs.observe(document.body,{childList:true,subtree:true});
+      }
+      const cx=s.querySelector('#pcx'); if(cx) cx.onclick=()=>{ clearTimeout(timer); stopWatch(); closeSheet(); toast(t('pay_cancelled')); };
     };
   };
   sheet('', draw);
 }
 function finishBooking(mode, pay){
+  if(bkBusy) return; /* un seul rendez-vous créé par réservation */
+  bkBusy = true;
   const a={id:'A'+Date.now(), pid:B.pid||'me', doctor:B.docName, spec:B.spec, facility:B.facName, when:B.when, fee:B.fee, mode, pay:pay||null, payAt:Date.now(), status:'ok', created:Date.now()};
   S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK) AFK.syncAppt(a); B={}; go('#/booked/'+a.id);
 }
@@ -609,10 +632,21 @@ function vPayment(id){
 }
 
 /* ---------- ORDER TRACKING (demo: accelerated timeline) ---------- */
-const RIDERS=[{n:'Rodrigue',v:'Moto · BJ 4521 RB'},{n:'Fabrice',v:'Moto · BJ 7714 RC'},{n:'Arnaud',v:'Moto · BJ 2096 RA'}];
+const RIDERS=[{n:'Rodrigue',v:'Moto · BF 4521 RB'},{n:'Fabrice',v:'Moto · BF 7714 RC'},{n:'Arnaud',v:'Moto · BF 2096 RA'}];
 const TRK_DEL=[0,8,20,28,75], TRK_PICK=[0,8,25];
 function trk(o){
-  const el=(Date.now()-o.at)/1000, del=o.mode==='delivery', T=del?TRK_DEL:TRK_PICK;
+  const del=o.mode==='delivery';
+  if(o.sb){
+    /* Commande du backend : les étapes suivent le statut réel renvoyé
+       (sbStatus) — la chronologie accélérée ne concerne que la démo. */
+    const keys=del?['trk_confirmed','trk_preparing','trk_picked','trk_onway','trk_arrived','trk_delivered']:['trk_confirmed','trk_preparing','trk_ready','trk_collected'];
+    const MAP={pending_payment:0,paid:1,confirmed:1,preparing:1,ready:2,out_for_delivery:3,in_transit:3,arrived:4,delivered:keys.length-1,collected:keys.length-1,completed:keys.length-1};
+    let st = MAP[o.sbStatus]!=null ? MAP[o.sbStatus] : 0;
+    if(o.done) st=keys.length-1;
+    const prog = del ? (st>=5?1:st===4?0.92:st===3?0.55:st===2?0.3:0.08) : 0;
+    return {st, keys, prog, eta:null, del, T:keys.map(()=>0), sb:true};
+  }
+  const el=(Date.now()-o.at)/1000, T=del?TRK_DEL:TRK_PICK;
   let st=0; T.forEach((x,i)=>{ if(el>=x) st=i; });
   if(o.done) st=T.length;
   const keys=del?['trk_confirmed','trk_preparing','trk_picked','trk_onway','trk_arrived','trk_delivered']:['trk_confirmed','trk_preparing','trk_ready','trk_collected'];
@@ -649,8 +683,8 @@ function placeRider(prog){
 function trkBody(o){
   const k=trk(o), ph=orderPh(o), rd=orderRider(o);
   const head = k.del
-    ? (k.st>=5?['green','check',t('trk_h_delivered'),fmtDT(o.done)]:k.st===4?['green','pin',t('trk_h_arrived'),t('trk_h_arrived_s',{n:rd.n})]:k.st===3?['blue','pin',t('trk_h_onway',{n:rd.n}),t('trk_eta',{n:k.eta})]:['orange','store',t(k.keys[k.st]),t('trk_eta_total',{n:k.eta})])
-    : (k.st>=3?['green','check',t('trk_h_collected'),fmtDT(o.done)]:k.st===2?['green','store',t('trk_ready'),ph.name+' · '+ph.area]:['orange','store',t(k.keys[k.st]),t('trk_ready_in',{n:k.eta})]);
+    ? (k.st>=5?['green','check',t('trk_h_delivered'),fmtDT(o.done)]:k.st===4?['green','pin',t('trk_h_arrived'),t('trk_h_arrived_s',{n:rd.n})]:k.st===3?['blue','pin',t('trk_h_onway',{n:rd.n}),k.eta!=null?t('trk_eta',{n:k.eta}):ph.name+' · '+ph.area]:['orange','store',t(k.keys[k.st]),k.eta!=null?t('trk_eta_total',{n:k.eta}):ph.name+' · '+ph.area])
+    : (k.st>=3?['green','check',t('trk_h_collected'),fmtDT(o.done)]:k.st===2?['green','store',t('trk_ready'),ph.name+' · '+ph.area]:['orange','store',t(k.keys[k.st]),k.eta!=null?t('trk_ready_in',{n:k.eta}):ph.name+' · '+ph.area]);
   let h='<div class="trkhead '+head[0]+'"><span class="ic">'+I(head[1])+'</span><span><b>'+head[2]+'</b><small>'+head[3]+'</small></span></div>';
   if(k.del && k.st<5) h+=trkMap();
   if(k.del && k.st>=2 && k.st<5) h+='<div class="rider"><span class="av" style="background:var(--blue-50);color:var(--blue)">'+rd.n[0]+'</span><span class="tx"><b>'+rd.n+'</b><small>'+t('trk_rider')+' · '+rd.v+'</small></span><button class="mini call" id="callr" aria-label="'+t('call')+'">'+I('phone','sm')+'</button></div>';
@@ -660,7 +694,7 @@ function trkBody(o){
     h+='<button class="btn green" id="rcv">'+I('check','sm')+(k.del?t('trk_received'):t('trk_collected_btn'))+'</button>';
   }
   h+='<div class="sec">'+t('trk_steps')+'</div><div class="tl">'+k.keys.map((key,i)=>{
-      const when = i<=k.st ? (i===k.keys.length-1 ? (o.done?fmtTime(o.done):'') : fmtTime(o.at+(k.T[i]||0)*1000)) : '';
+      const when = o.sb ? (i===k.keys.length-1 && o.done ? fmtTime(o.done) : '') : (i<=k.st ? (i===k.keys.length-1 ? (o.done?fmtTime(o.done):'') : fmtTime(o.at+(k.T[i]||0)*1000)) : '');
       return '<div class="'+(i<=k.st?'done':i===k.st+1?'cur':'')+'">'+t(key)+(when?'<small>'+ISO(when)+'</small>':'')+'</div>'; }).join('')+'</div>';
   h+='<div class="receipt" style="margin-top:6px"><div class="t">'+t('order')+'</div><div class="d">'+o.id+'</div>'+
     Object.entries(o.items).map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id); return m?'<div class="kv"><span>'+m.name+' × '+q+'</span><b>'+money(m.price*q)+'</b></div>':''; }).join('')+
@@ -693,12 +727,12 @@ function activeOrders(){ return (S.orders||[]).filter(o=>!o.done); }
 function orderStatusLine(o){ const k=trk(o); return t(k.keys[Math.min(k.st,k.keys.length-1)])+(k.eta&&k.st<(k.del?4:2)?' · '+ISO('~'+k.eta+' min'):''); }
 function vOrders(){
   const list=S.orders||[];
-  screen(topbar(t('my_orders'),'')+'<div class="scroll">'+(list.length?'<div class="list">'+list.map(o=>'<button class="row" data-go="#/order/'+o.id+'"><span class="ic">'+I('bag')+'</span><span class="tx"><b>'+o.id+' · '+money(o.total)+'</b><small>'+(o.done?(o.mode==='delivery'?t('trk_delivered'):t('trk_collected'))+' · '+fmtDT(o.done):orderStatusLine(o))+'</small></span>'+I('chev','sm chev')+'</button>').join('')+'</div>':'<div class="card empty">'+t('nothing')+'<div style="margin-top:12px"><button class="btn sm" data-go="#/pharmacy">'+t('see_meds')+'</button></div></div>')+'</div>','profile');
+  screen(topbar(t('my_orders'),'')+'<div class="scroll">'+(list.length?'<div class="list">'+list.map(o=>'<button class="row" data-go="#/order/'+o.id+'"><span class="ic">'+I('bag')+'</span><span class="tx"><b>'+o.id+' · '+money(o.total)+'</b><small>'+(o.done?(o.mode==='delivery'?t('trk_delivered'):t('trk_collected'))+' · '+fmtDT(o.done):orderStatusLine(o))+(o.pendingSync?' · '+t('sync_badge'):'')+'</small></span>'+I('chev','sm chev')+'</button>').join('')+'</div>':'<div class="card empty">'+t('nothing')+'<div style="margin-top:12px"><button class="btn sm" data-go="#/pharmacy">'+t('see_meds')+'</button></div></div>')+'</div>','profile');
 }
 /* background watcher: notify each step even when the tracking screen is closed */
 setInterval(()=>{
   let ch=false;
-  (S.orders||[]).forEach(o=>{ if(o.done) return; const k=trk(o); const prev=o.ns||0;
+  (S.orders||[]).forEach(o=>{ if(o.done || o.sb) return; const k=trk(o); const prev=o.ns||0;
     if(k.st>prev){ o.ns=k.st; ch=true; const key=k.keys[k.st];
       const notify = k.del ? (k.st>=2) : (k.st===2);
       if(notify){ const body=k.del&&k.st===4?t('trk_h_arrived_s',{n:orderRider(o).n}):o.id; addNotif(k.st===4||(!k.del&&k.st===2)?'pin':'bag', t(key), body); if(!document.getElementById('trk')) toast(t(key)); }
@@ -783,7 +817,7 @@ function healthCardBack(p){
   return '<div class="ncw"><div class="nc">'+ncWaves()+
     '<div class="nc-vhead"><div class="nc-vttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('UNITÉ · PROGRÈS · JUSTICE','UNITY · PROGRESS · JUSTICE')+'</i></div><img class="nc-logo nc-mark" src="assets/logo-mark.png" alt=""></div>'+
     '<div class="nc-rule">'+rule+'</div>'+
-    '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 15 · Police 17','Fire 18 · SAMU 15 · Police 17')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
+    '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 15 · Police 17 · Gendarmerie 16','Fire 18 · SAMU 15 · Police 17 · Gendarmerie 16')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
     '<div class="nc-bar"><div class="nc-bars">'+bars+'</div><span>'+p.num+'</span></div>'+
     '<div class="nc-foot"><span>'+CL('PROPRIÉTÉ DE L’ÉTAT','PROPERTY OF THE STATE')+'</span><span>'+CL('« LA PATRIE OU LA MORT, NOUS VAINCRONS »','“HOMELAND OR DEATH, WE SHALL OVERCOME”')+'</span></div></div></div>';
 }
@@ -807,23 +841,23 @@ function vCard(){
 
 /* ---------- INSURANCE ---------- */
 function insSummary(p){
-  const c=S.ins.comp[p.id];
-  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+'</small></span>'+badge('green',t('active'))+'</div>'+'</button>';
+  /* Badge « Actif » seulement si une affiliation est connue active
+     (souscription enregistrée) ; sinon statut à confirmer. */
+  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+'</small></span>'+(S.ins.comp[p.id]?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div>'+'</button>';
 }
 function vInsurance(){
-  const p=cur(), IN=D.INSURANCE; let plan=3;
+  const p=cur();
   const draw=()=>{
     const c=S.ins.comp[p.id], link=S.ins.link;
     const linkHtml = p.id==='me' ? (link ? '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('linked_ins')+' · '+esc(link.name)+'</b><small>'+t('ins_t_'+link.type)+' · '+ISO(esc(link.no))+'</small></span>'+badge('orange',t('pending'))+'</div></div>'
       : '<button class="btn ghost" id="lk">'+I('shield','sm')+t('link_ins')+'</button>') : '';
     screen(topbar(t('ins_title'), t('ins_sub'))+'<div class="scroll">'+actingBanner()+
-      '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+' · '+ISO(p.num)+'</small></span>'+badge('green',t('active'))+'</div></div>'+
+      '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+' · '+ISO(p.num)+'</small></span>'+(c?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div></div>'+
       linkHtml+
+      (p.child?'<button class="btn ghost" id="holder" style="margin-top:12px">'+I('swap','sm')+t('ins_see_holder')+'</button>':'')+
       '<p class="demo">'+t('ins_demo')+'</p></div>', S.who==='me'?'profile':'family');
     bindWho();
-    $app.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{ plan=+b.dataset.pl; draw(); });
-    const sb=document.getElementById('sub'); if(sb) sb.onclick=()=>payFlow(IN.plans[plan][0], pay=>{ S.ins.comp[p.id]={plan, paid:1, start:Date.now(), ref:pay.ref}; if(window.AFK) AFK.syncInsurance(plan, IN.plans[plan][0], pay, p.id).then(sub=>{ if(sub && S.ins.comp[p.id]){ S.ins.comp[p.id].sbSub=sub.id; save(); } }); addNotif('shield',t('n_ins_t'),t('comp_ok_s',{name:fullName(p)})); save(); draw(); sheet('<div class="ok" style="padding-top:6px"><div class="c">'+I('check','lg')+'</div><h2>'+t('comp_ok')+'</h2><p>'+t('comp_ok_s',{name:nm(fullName(p))})+'</p></div><button class="btn" id="okb">OK</button>', s=>s.querySelector('#okb').onclick=closeSheet); });
-    const pn=document.getElementById('pn2'); if(pn) pn.onclick=()=>{ const c=S.ins.comp[p.id]; payFlow(IN.plans[c.plan][c.paid], ()=>{ c.paid++; if(window.AFK) AFK.syncInstallment(c.sbSub, IN.plans[c.plan][c.paid-1], p.id); save(); toast(t('inst_ok')); draw(); }); };
+    const hd=document.getElementById('holder'); if(hd) hd.onclick=()=>{ setWho('me',true); vInsurance(); };
     const lk=document.getElementById('lk'); if(lk) lk.onclick=()=>linkSheet(draw);
   };
   draw();
@@ -863,17 +897,49 @@ window.AFK_MERGE = function(h){
   }
   save();
 };
+/* ---------- Synchronisation différée ----------
+   backend.js signale chaque échec d'écriture par l'événement
+   « afk-sync-fail » : l'élément reste enregistré sur l'appareil (succès
+   local inchangé), il est marqué « en attente » et réessayé au retour du
+   réseau et au chargement de l'app. */
+window.addEventListener('afk-sync-fail', e=>{
+  const d=(e&&e.detail)||{}; let marked=false;
+  if(d.kind==='appt'){ const a=(S.appts||[]).find(x=>x.id===d.ref); if(a && !a.sb){ a.pendingSync=true; marked=true; } }
+  if(d.kind==='order'){ const o=(S.orders||[]).find(x=>x.id===d.ref); if(o && !o.sb){ o.pendingSync=true; marked=true; } }
+  if(marked) save();
+  toast(t('sync_pending'));
+});
+function retryPendingSync(){
+  if(!(window.AFK && AFK.connected())) return;
+  (S.appts||[]).filter(a=>a.pendingSync && !a.sb).forEach(a=>{ AFK.syncAppt(a).then(r=>{ if(r){ a.pendingSync=false; save(); } }); });
+  (S.orders||[]).filter(o=>o.pendingSync && !o.sb).forEach(o=>{ AFK.syncOrder(o).then(r=>{ if(r){ o.pendingSync=false; save(); } }); });
+}
+window.addEventListener('online', retryPendingSync);
 function accountRow(){
   const on = window.AFK && AFK.connected();
   const s = on ? AFK.session() : null, p = on ? AFK.patient() : null;
   return '<button class="row" data-go="#/account"><span class="ic">'+I('shield','sm')+'</span><span class="tx"><b>'+t('account')+'</b><small>'+(on ? esc(s.user.email)+(p ? ' · '+ISO(p.health_id) : '') : t('account_off'))+'</small></span>'+I('chev','sm chev')+'</button>';
 }
 function authErr(e){
+  /* Erreurs d'authentification traduites — jamais le message brut du
+     serveur (en anglais) ; message générique traduit en dernier recours. */
   const m = (e && e.message) || '';
   if(/Invalid login credentials/i.test(m)) return t('err_credentials');
   if(/already registered/i.test(m)) return t('err_exists');
+  if(/not confirmed/i.test(m)) return t('err_unconfirmed');
+  if(/invalid.*email|email.*invalid/i.test(m)) return t('err_email');
+  if(/failed to fetch|network|load failed/i.test(m)) return t('err_network');
   if(/password/i.test(m)) return t('err_password');
-  return m || t('err_generic');
+  return t('err_generic');
+}
+/* Déconnexion : les éléments synchronisés du compte (rendez-vous et
+   commandes « sb », souscriptions relues) sont purgés de l'état local
+   pour ne pas être montrés à l'utilisateur suivant sur l'appareil. */
+function purgeAccountData(){
+  S.appts=(S.appts||[]).filter(a=>!a.sb);
+  S.orders=(S.orders||[]).filter(o=>!o.sb);
+  if(S.ins && S.ins.comp) for(const pid in S.ins.comp){ if(S.ins.comp[pid] && S.ins.comp[pid].sb) delete S.ins.comp[pid]; }
+  S.who='me'; save();
 }
 /* Écran de bienvenue après connexion réussie (cahier P8) : « Bienvenue,
    Prénom ! » affiché ~3 s, avec bouton Continuer ; la redirection
@@ -901,7 +967,7 @@ function vAccount(){
       '</div>'+
       '<div class="alert green" style="margin-top:12px">'+I('check','sm')+'<span>'+t('account_on_note')+'</span></div>'+
       '<div style="margin-top:16px"><button class="btn ghost" id="so">'+t('sign_out')+'</button></div></div>','profile');
-    document.getElementById('so').onclick = ()=>{ AFK.signOut(); toast(t('signed_out')); route(); };
+    document.getElementById('so').onclick = ()=>{ purgeAccountData(); AFK.signOut(); toast(t('signed_out')); route(); };
     if(!p) AFK.loadPatient().then(q=>{ if(q) route(); }).catch(()=>{});
     return;
   }
@@ -915,6 +981,7 @@ function vAccount(){
       '<div class="f"><label>'+t('password')+'</label><input id="ap" type="password" autocomplete="'+(mode==='up'?'new-password':'current-password')+'" placeholder="••••••••"></div>'+
       '<div id="aerr"></div>'+
       '<div style="margin-top:14px"><button class="btn blue" id="ago">'+(mode==='up' ? t('sign_up') : t('sign_in'))+'</button></div>'+
+      (mode==='in' ? '<div style="margin-top:10px;text-align:center"><button class="lnk" id="afp">'+t('forgot_password')+'</button></div>' : '')+
       '<div style="margin-top:10px"><button class="btn ghost" id="ademo">'+t('demo_continue')+'</button></div>'+
       '<p class="demo" style="margin-top:12px">'+t('account_note')+'</p></div>','profile');
     document.getElementById('ademo').onclick = ()=>{ S.acctSeen = 1; save(); go('#/home'); };
@@ -924,9 +991,18 @@ function vAccount(){
       const name = mode==='up' ? document.getElementById('an').value.trim() : '';
       const err = m => { document.getElementById('aerr').innerHTML = '<div class="alert orange" style="margin-top:10px">'+I('alert','sm')+'<span>'+esc(m)+'</span></div>'; };
       if(!email || !pw || (mode==='up' && !name)){ err(t('fill_required')); return; }
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err(t('err_email')); return; }
       const btn = document.getElementById('ago'); btn.disabled = true;
       const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
       act.then(()=>{ S.acctSeen = 1; save(); vWelcome(); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
+    };
+    const afp=document.getElementById('afp');
+    if(afp) afp.onclick = ()=>{
+      const email = document.getElementById('ae').value.trim();
+      const err = m => { document.getElementById('aerr').innerHTML = '<div class="alert orange" style="margin-top:10px">'+I('alert','sm')+'<span>'+esc(m)+'</span></div>'; };
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err(t('err_email')); return; }
+      afp.disabled = true;
+      AFK.resetPassword(email).then(()=>{ toast(t('reset_sent')); }).catch(e=>{ afp.disabled = false; err(authErr(e)); });
     };
   };
   draw();
@@ -938,7 +1014,7 @@ function vProfile(){
     '<div style="margin:14px 0">'+healthCard(me)+'</div><div class="menu">'+accountRow()+(window.AFK && AFK.connected() ? '<button class="row" id="lgo"><span class="ic">'+I('logout','sm')+'</span><span class="tx"><b>'+t('sign_out')+'</b><small>'+esc(AFK.session().user.email)+'</small></span></button>' : '')+menu.map(([ic,k,h])=>'<button class="row" data-go="'+h+'" data-mine="1"><span class="ic">'+I(ic,'sm')+'</span><span class="tx"><b>'+t(k)+'</b>'+(k==='language'?'<small>'+t('lang_note')+'</small>':'')+'</span>'+I('chev','sm chev')+'</button>').join('')+
     '<button class="row" id="rs"><span class="ic">'+I('refresh','sm')+'</span><span class="tx"><b>'+t('reset_demo')+'</b><small>'+t('reset_demo_s')+'</small></span></button></div><p class="demo">AfrikSol Santé · v2.0 · '+t('demo_note')+'</p></div>','profile');
   $app.querySelectorAll('[data-mine]').forEach(b=>b.addEventListener('click',()=>{ if(b.dataset.go!=='#/family'){ S.who='me'; save(); } }, true));
-  const lgo=document.getElementById('lgo'); if(lgo) lgo.onclick=()=>{ AFK.signOut(); toast(t('signed_out')); route(); };
+  const lgo=document.getElementById('lgo'); if(lgo) lgo.onclick=()=>{ purgeAccountData(); AFK.signOut(); toast(t('signed_out')); route(); };
   document.getElementById('rs').onclick=()=>sheet('<h3>'+t('reset_demo')+'</h3><p>'+t('reset_q')+'</p><button class="btn" id="y">'+t('reset_yes')+'</button>',s=>s.querySelector('#y').onclick=()=>{ try{ Object.keys(localStorage).filter(k=>k.startsWith('afk2_')&&k!=='afk2_lang').forEach(k=>localStorage.removeItem(k)); }catch(e){} location.hash='#/home'; location.reload(); });
 }
 function vNotifs(){
@@ -1007,4 +1083,5 @@ window.addEventListener('hashchange', route);
 applyDir();
 if(S.lang){ if(!location.hash||location.hash==='#/'){ vSplash(); } else route(); }
 else vSplash();
+setTimeout(retryPendingSync, 1500); /* éléments en attente de synchronisation */
 })();
