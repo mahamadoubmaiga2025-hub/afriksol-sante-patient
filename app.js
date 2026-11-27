@@ -492,16 +492,16 @@ function vPharmacy(){
   draw();
 }
 function vCart(){
-  let mode='delivery', addr='';
+  let mode='pickup', addr=''; /* Pilote BF : livraison masquée (delivery.enabled=false) — retrait en pharmacie seul */
   const draw=()=>{
     const items=Object.entries(S.cart);
     if(!items.length){ screen(topbar(t('my_cart'),'')+'<div class="scroll"><div class="card empty" style="margin-top:10px">'+t('cart_empty')+'</div><div style="margin-top:14px"><button class="btn" data-go="#/pharmacy">'+t('see_meds')+'</button></div></div>','home'); return; }
     const sub=cartTotal(), del=mode==='delivery'?1000:0, hasRx=items.some(([id])=>(D.MEDICINES.find(m=>m.id===id)||{}).rx);
     screen(topbar(t('my_cart'), t('cart_n',{n:cartCount()}))+'<div class="scroll">'+
       items.map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id); return '<div class="med"><div class="h"><span><b>'+m.name+'</b><small>'+money(m.price)+' × '+q+'</small></span><span class="qty"><button data-m="'+id+'" data-d="-1">−</button>'+q+'<button data-m="'+id+'" data-d="1">+</button></span></div></div>'; }).join('')+
-      '<div class="sec">'+t('receive')+'</div><div class="chips"><button class="chip '+(mode==='delivery'?'on':'')+'" data-mo="delivery">'+t('delivery')+' · '+money(1000)+'</button><button class="chip '+(mode==='pickup'?'on':'')+'" data-mo="pickup">'+t('pickup')+'</button></div>'+
+      '<div class="sec">'+t('receive')+'</div><div class="chips"><button class="chip on" data-mo="pickup">'+t('pickup')+'</button></div>'+
       (mode==='delivery'?'<div class="f" style="margin-top:12px"><label>'+t('address')+'</label><input id="ad" placeholder="'+t('address_ph')+'" value="'+esc(addr)+'"></div>':'<div class="alert green" style="margin-top:12px">'+I('store','sm')+'<span>'+t('pickup_note')+'</span></div>')+
-      '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('subtotal')+'</span><b>'+money(sub)+'</b></div><div class="kv"><span>'+t('delivery')+'</span><b>'+money(del)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(sub+del)+'</b></div></div>'+
+      '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('subtotal')+'</span><b>'+money(sub)+'</b></div>'+(del?'<div class="kv"><span>'+t('delivery')+'</span><b>'+money(del)+'</b></div>':'')+'<div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(sub+del)+'</b></div></div>'+
       (hasRx?'<div class="alert orange">'+I('alert','sm')+'<span>'+t('rx_note')+'</span></div>':'')+
       '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(sub+del)+')</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','home');
     const ad=document.getElementById('ad'); if(ad) ad.oninput=()=>{ addr=ad.value; ad.parentNode.classList.remove('err'); };
