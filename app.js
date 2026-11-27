@@ -19,6 +19,16 @@ const S = {
   notifs: store.get('notifs', null),
   pos: null, posState: 'unknown'
 };
+/* Validation de forme de l'état persisté : un état corrompu (ancienne
+   version, écriture interrompue…) retombe proprement sur des valeurs
+   sûres au lieu de casser des écrans en chaîne. */
+if(!Array.isArray(S.appts)) S.appts = null;
+if(!Array.isArray(S.orders)) S.orders = [];
+if(!S.cart || typeof S.cart!=='object' || Array.isArray(S.cart)) S.cart = {};
+if(!S.ins || typeof S.ins!=='object') S.ins = {comp:{}, link:null};
+else if(!S.ins.comp || typeof S.ins.comp!=='object' || Array.isArray(S.ins.comp)) S.ins = {comp:{}, link:S.ins.link||null};
+if(S.notifs!=null && !Array.isArray(S.notifs)) S.notifs = null;
+if(typeof S.who!=='string' || !S.who) S.who = 'me';
 function save(){ ['who','appts','cart','orders','ins','notifs','acctSeen'].forEach(k=>store.set(k,S[k])); }
 
 /* ---------- i18n ---------- */
@@ -45,9 +55,17 @@ function prof(id){ return D.PROFILES.find(p=>p.id===id) || D.PROFILES[0]; }
 function cur(){ return prof(S.who); }
 function fullName(p){ return p.first+' '+p.last; }
 function ageOf(p){ const b=new Date(p.born), n=new Date(); let a=n.getFullYear()-b.getFullYear(); if(n.getMonth()<b.getMonth()||(n.getMonth()===b.getMonth()&&n.getDate()<b.getDate())) a--; return a; }
-function initials(p){ return (p.first[0]+p.last[0]).toUpperCase(); }
+function initials(p){ return (((p.first||'')[0]||'')+((p.last||'')[0]||'')).toUpperCase(); }
+/* URL de photo acceptée en attribut src : http(s), data:image ou chemin
+   relatif simple du site — tout le reste (schéma injecté, data:text/html…)
+   retombe sur les initiales. */
+function safePhoto(u){ if(!u || typeof u!=='string') return '';
+  if(/^https?:\/\//i.test(u) || /^data:image\//i.test(u)) return esc(u);
+  if(/^[\w.\/-]+$/.test(u) && u.charAt(0)!=='.' && u.indexOf('..')<0) return esc(u);
+  return ''; }
 function avatar(p, size){ size=size||44; const st='width:'+size+'px;height:'+size+'px;font-size:'+Math.round(size*0.34)+'px';
-  return p.photo ? '<span class="av ph" style="'+st+'"><img src="'+p.photo+'" alt=""></span>' : '<span class="av" style="'+st+'">'+initials(p)+'</span>'; }
+  const ph = safePhoto(p.photo);
+  return ph ? '<span class="av ph" style="'+st+'"><img src="'+ph+'" alt=""></span>' : '<span class="av" style="'+st+'">'+initials(p)+'</span>'; }
 function setWho(id, silent){ S.who=id; save(); if(!silent && id!=='me') toast(t('switched',{name:prof(id).first})); }
 
 /* ---------- icons ---------- */
@@ -220,14 +238,22 @@ function apptCard(a, full){
   const p=prof(a.pid||'me');
   return '<div class="card appt"><div class="row" style="align-items:flex-start"><div class="tx">'+(a.pid&&a.pid!=='me'?'<span class="forwho">'+avatar(p,20)+t('appt_for',{name:nm(p.first)})+'</span>':'')+'<b>'+esc(a.doctor)+'</b><div class="meta">'+fmtDT(a.when)+' · '+esc(a.facility)+'</div><div class="meta">'+t('spec_'+a.spec)+'</div></div>'+
     (a.status==='ok'?badge('green',t('confirmed')):badge('gray',t('cancelled')))+(a.pendingSync?badge('orange',t('sync_badge')):'')+'</div>'+
-    (a.status==='ok'?'<div class="appt acts"><button class="lnk" data-cancel="'+a.id+'">'+t('cancel_appt')+'</button>'+(full?'':'<button class="lnk" data-go="#/appts">'+t('details')+'</button>')+'</div>':'')+'</div>';
+    /* Annulation proposée seulement pour un rendez-vous à venir : un
+       rendez-vous passé ne peut plus être annulé. */
+    (a.status==='ok'&&a.when>Date.now()?'<div class="appt acts"><button class="lnk" data-cancel="'+a.id+'">'+t('cancel_appt')+'</button>'+(full?'':'<button class="lnk" data-go="#/appts">'+t('details')+'</button>')+'</div>':'')+'</div>';
 }
 function bindCancel(){
   $app.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{
     const id=b.dataset.cancel;
     sheet('<h3>'+t('cancel_q')+'</h3><p>'+t('cancel_q_sub')+'</p><button class="btn" id="y">'+t('cancel_yes')+'</button><div style="height:10px"></div><button class="btn ghost" id="n">'+t('keep')+'</button>', s=>{
       s.querySelector('#n').onclick=closeSheet;
-      s.querySelector('#y').onclick=()=>{ const a=S.appts.find(x=>x.id===id); if(a){a.status='cx'; addNotif('calendar',t('n_cx_t'),a.doctor+' · '+fmtDT(a.when));} save(); closeSheet(); toast(t('appt_cancelled')); route(); };
+      s.querySelector('#y').onclick=()=>{ const a=S.appts.find(x=>x.id===id); if(a){ a.status='cx'; addNotif('calendar',t('n_cx_t'),a.doctor+' · '+fmtDT(a.when));
+        /* Rendez-vous synchronisé : l'annulation est propagée au backend
+           (RPC cancel_own_appointment) — sinon la relecture d'historique
+           le ferait « ressusciter ». Un échec laisse cancelPending, repris
+           par retryPendingSync, et émet le toast de synchronisation. */
+        if(a.sbId && window.AFK && AFK.cancelAppt){ a.cancelPending=true; AFK.cancelAppt(a); } }
+        save(); closeSheet(); toast(t('appt_cancelled')); route(); };
     });
   });
 }
@@ -270,7 +296,12 @@ function vSos(){
     else if(S.posState==='asking') locHtml = '<div class="loc off"><div class="row"><span class="ic">'+I('pin')+'</span><span class="tx"><b>'+t('loc_asking')+'</b><small>'+t('loc_asking_s')+'</small></span></div></div>';
     else if(S.posState==='denied') locHtml = '<div class="loc off"><div class="row"><span class="ic">'+I('pin')+'</span><span class="tx"><b>'+t('loc_denied')+'</b><small>'+t('loc_denied_s')+'</small></span></div><button class="btn sm" style="width:100%;margin-top:12px" id="enable">'+t('retry')+'</button></div>';
     else locHtml = '<div class="loc off"><div class="row"><span class="ic">'+I('pin')+'</span><span class="tx"><b>'+t('loc_off')+'</b><small>'+t('loc_off_s')+'</small></span></div><button class="btn sm" style="width:100%;margin-top:12px" id="enable">'+I('pin','sm')+t('enable_loc')+'</button></div>';
-    const contact = p.child ? [t('em_contact_child'), D.GUARDIAN.name+' · '+D.GUARDIAN.tel] : [t('em_contact'), p.contact.name+' ('+t(p.contact.rel)+')'];
+    /* Profil réel : tant que le vrai contact d'urgence n'est pas connu
+       (p.contact === null, posé par backend.js), on n'affiche PAS le
+       contact fictif de démonstration sur l'écran SOS. */
+    const contact = p.child ? [t('em_contact_child'), D.GUARDIAN.name+' · '+D.GUARDIAN.tel]
+      : (p.contact ? [t('em_contact'), p.contact.name+(p.contact.rel?' ('+t(p.contact.rel)+')':'')+(p.contact.tel?' · '+p.contact.tel:'')]
+                    : [t('em_contact'), t('em_contact_none')]);
     screen(topbar(t('emergencies'), t('sos_top'))+'<div class="scroll">'+
       '<div class="samu"><span class="tag">SAMU BURKINA FASO</span><div class="n">15</div><b>'+t('samu_title')+'</b><small>'+t('samu_sub')+'</small><a class="btn" href="tel:15">'+I('phone')+t('call_112')+'</a></div>'+
       '<div class="nums"><a href="tel:18"><b>18</b><small>'+t('firemen')+'</small></a><a href="tel:17"><b>17</b><small>'+t('police')+'</small></a><a href="tel:16"><b>16</b><small>'+t('gendarmerie')+'</small></a><a href="tel:'+D.SAMU_DIRECT+'"><b style="font-size:13px;line-height:1.85;white-space:nowrap">'+ISO('25 30 68 88')+'</b><small>'+t('samu_direct')+'</small></a></div>'+
@@ -323,11 +354,16 @@ function itemHtml(it){ return '<div class="item"><div class="h"><b>'+esc(tx(it.t
 
 /* ---------- appointments list ---------- */
 function vAppts(){
-  const up=upcoming(), past=S.appts.filter(a=>!(a.status==='ok'&&a.when>Date.now())).sort((a,b)=>b.when-a.when);
+  const up=upcoming();
+  /* Sections séparées : les rendez-vous passés (confirmés, déjà honorés)
+     ne sont plus mélangés aux annulés sous l'en-tête « Annulé ». */
+  const pastOk=S.appts.filter(a=>a.status==='ok'&&a.when<=Date.now()).sort((a,b)=>b.when-a.when);
+  const cx=S.appts.filter(a=>a.status!=='ok').sort((a,b)=>b.when-a.when);
   screen(topbar(t('tile_appts'), t('family_appts'))+'<div class="scroll">'+
     (up.length?up.map(a=>apptCard(a,true)).join(''):'<div class="card empty">'+t('no_appt')+'</div>')+
     '<div style="margin:14px 0"><button class="btn" data-go="#/book">'+I('calplus','sm')+t('book_now')+'</button></div>'+
-    (past.length?'<div class="sec">'+t('cancelled')+'</div>'+past.map(a=>apptCard(a,true)).join(''):'')+'</div>','home');
+    (pastOk.length?'<div class="sec">'+t('past_appts')+'</div>'+pastOk.map(a=>apptCard(a,true)).join(''):'')+
+    (cx.length?'<div class="sec">'+t('cancelled')+'</div>'+cx.map(a=>apptCard(a,true)).join(''):'')+'</div>','home');
   bindCancel();
 }
 
@@ -352,10 +388,16 @@ let B = {};
 let bkBusy = false; /* garde anti-double-tap : une seule réservation à la fois */
 function bookTop(step, sub){ return topbar(t('book_appt'), t('step_x',{n:step})+' — '+sub)+'<div class="scroll">'+actingBanner()+'<div class="prog"><div class="l"><span>'+t('step_of',{n:step})+'</span><span>'+(step*20)+'%</span></div><div class="b"><i style="width:'+(step*20)+'%"></i></div></div>'; }
 function vBook(args){
-  if(args[0]==='fac'){ B={type:args[1], fac:args[2], pid:S.who}; return go('#/book/2'); }
+  if(args[0]==='fac'){
+    /* Lien direct vers un établissement : type et établissement doivent
+       exister, sinon retour propre au début du parcours. */
+    if(!D.FACILITY_TYPES.some(f=>f.id===args[1]) || !(D.FACILITIES[args[1]]||[]).some(f=>f.id===args[2])) return go('#/book');
+    B={type:args[1], fac:args[2], pid:S.who}; return go('#/book/2');
+  }
   if(args[0] && D.SPECIALTIES.includes(args[0])){ B={spec:args[0], pid:S.who}; }
   else if(!args[0]){ B={pid:S.who}; }
   const step = /^\d$/.test(args[0]||'')? +args[0] : 1;
+  if(step<1 || step>5) return go('#/book'); /* #/book/9 et autres étapes inconnues */
   B.pid = S.who;
   if(step===1) return bStep1();
   if(step===2) return bStep2();
@@ -394,7 +436,7 @@ function bStep2(){
   draw('');
 }
 function bStep3(){
-  if(!B.type||!B.spec) return go('#/book');
+  if(!B.type||!B.spec||!D.FACILITIES[B.type]) return go('#/book');
   const L3=[...D.FACILITIES[B.type]].sort((a,b)=>a.km-b.km);
   screen(bookTop(3,t('facility'))+'<div class="list">'+L3.map(f=>'<button class="row" data-f="'+f.id+'"><span class="tx"><b>'+esc(f.name)+'</b><small>'+esc(f.area)+' · '+fmtKm(f.km)+' · '+t('n_docs',{n:f.docs})+'</small></span>'+I('chev','sm chev')+'</button>').join('')+'</div></div>','appt');
   $app.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{ B.fac=b.dataset.f; go('#/book/4'); });
@@ -415,7 +457,7 @@ function bStep4(){
   let keepScroll=0;
   const draw=(docs, slotsOf)=>{
     screen(bookTop(4,t('doctor'))+'<div style="font-size:13px;color:var(--mute);margin-bottom:10px">'+esc(fac.name)+' · '+t('spec_'+B.spec)+'</div>'+
-      docs.map(d=>{ const sl=slotsOf(d); return '<div class="doc"><div class="h"><span class="av">'+d.ini+'</span><span><b>'+d.name+'</b><small>'+esc(d.specLabel||t('spec_'+B.spec))+'</small>'+(d.rating?'<div class="star">★ '+d.rating+' <span style="color:var(--mute);font-weight:500">('+d.reviews+')</span></div>':'')+'</span></div>'+
+      docs.map(d=>{ const sl=slotsOf(d); return '<div class="doc"><div class="h"><span class="av">'+d.ini+'</span><span><b>'+esc(d.name)+'</b><small>'+esc(d.specLabel||t('spec_'+B.spec))+'</small>'+(d.rating?'<div class="star">★ '+d.rating+' <span style="color:var(--mute);font-weight:500">('+d.reviews+')</span></div>':'')+'</span></div>'+
         '<div class="info">'+esc(fac.name)+(d.exp?' · '+t('years_exp',{n:d.exp}):'')+' · '+fmtKm(fac.km)+'</div><div class="slots">'+
         (sl.length?sl.map(s=>'<button class="slot '+(B.doc===d.id&&B.when===s?'on':'')+'" data-d="'+d.id+'" data-s="'+s+'">'+fmtDate(s,{weekday:'short',day:'numeric'})+' · '+ISO(fmtTime(s))+'</button>').join(''):'<span style="font-size:13px;color:var(--mute)">'+t('no_slots')+'</span>')+
         '</div><button class="btn" data-pick="'+d.id+'" '+(B.doc===d.id&&B.when?'':'disabled')+'>'+t('choose_doc')+' · '+money(fee)+'</button></div>'; }).join('')+'</div>','appt');
@@ -458,12 +500,16 @@ function bStep5(){
   if(!B.docName) return go('#/book');
   bkBusy = false;
   const p=prof(B.pid||'me');
+  /* Total pré-paiement : les frais de transaction (1,25 %, mêmes que
+     payFlow) sont affichés AVANT le paiement — le montant annoncé est
+     le montant qui sera débité, et le reçu reste cohérent. */
+  const txFee=Math.round(B.fee*0.0125), grandTotal=B.fee+txFee;
   screen(topbar(t('appt_summary'),'')+'<div class="scroll"><div class="card sum"><div class="h">'+t('consult_details')+'</div>'+
     '<div class="kv"><span>'+t('patient')+'</span><b>'+esc(fullName(p))+'</b></div><div class="kv"><span>'+t('health_no')+'</span><b>'+ISO(p.num)+'</b></div>'+
-    '<div class="kv"><span>'+t('doctor')+'</span><b>'+B.docName+'</b></div><div class="kv"><span>'+t('specialty')+'</span><b>'+t('spec_'+B.spec)+'</b></div><div class="kv"><span>'+t('facility')+'</span><b>'+esc(B.facName)+'</b></div><div class="kv"><span>'+t('date_time')+'</span><b>'+fmtDT(B.when)+'</b></div></div>'+
-    '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('consult_fee')+'</span><b>'+money(B.fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(B.fee)+'</b></div></div>'+
+    '<div class="kv"><span>'+t('doctor')+'</span><b>'+esc(B.docName)+'</b></div><div class="kv"><span>'+t('specialty')+'</span><b>'+t('spec_'+B.spec)+'</b></div><div class="kv"><span>'+t('facility')+'</span><b>'+esc(B.facName)+'</b></div><div class="kv"><span>'+t('date_time')+'</span><b>'+fmtDT(B.when)+'</b></div></div>'+
+    '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('consult_fee')+'</span><b>'+money(B.fee)+'</b></div><div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(txFee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(grandTotal)+'</b></div></div>'+
     '<div class="alert green">'+I('shield','sm')+'<span>'+t('arch_note')+'</span></div>'+
-    '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(B.fee)+')</button><div style="height:10px"></div><button class="btn ghost" id="pc">'+t('pay_at_desk')+'</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
+    '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(grandTotal)+')</button><div style="height:10px"></div><button class="btn ghost" id="pc">'+t('pay_at_desk')+'</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
   const lockBtns=()=>{ ['pm','pc'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled=true; }); };
   document.getElementById('pm').onclick=()=>{ if(!requireLogin('#/book/5','login_required_text')) return; lockBtns(); payFlow(B.fee, ref=>finishBooking('mobile',ref)); };
   document.getElementById('pc').onclick=()=>{ if(!requireLogin('#/book/5','login_required_text')) return; lockBtns(); finishBooking('onsite', null); };
@@ -509,14 +555,14 @@ function finishBooking(mode, pay){
   if(bkBusy) return; /* un seul rendez-vous créé par réservation */
   bkBusy = true;
   const a={id:'A'+Date.now(), pid:B.pid||'me', doctor:B.docName, spec:B.spec, facility:B.facName, when:B.when, fee:B.fee, mode, pay:pay||null, payAt:Date.now(), status:'ok', created:Date.now()};
-  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK) AFK.syncAppt(a); B={}; go('#/booked/'+a.id);
+  S.appts.push(a); addNotif('calendar', t('n_appt_t'), (a.pid!=='me'?prof(a.pid).first+' · ':'')+a.doctor+' · '+fmtDT(a.when)); save(); if(window.AFK) AFK.syncAppt(a).then(r=>{ if(r) save(); }); B={}; go('#/booked/'+a.id);
 }
 function vBooked(id){
   const a=S.appts.find(x=>x.id===id); if(!a) return go('#/home');
   const p=prof(a.pid);
-  screen('<div class="scroll"><div class="ok"><div class="c">'+I('check','lg')+'</div><h2>'+t('appt_confirmed')+'</h2><p>'+(a.pid!=='me'?'<b>'+t('appt_for',{name:nm(fullName(p))})+'</b><br>':'')+t('appt_confirmed_s',{doc:a.doctor,date:fmtDT(a.when),fac:a.facility})+'</p></div>'+
+  screen('<div class="scroll"><div class="ok"><div class="c">'+I('check','lg')+'</div><h2>'+t('appt_confirmed')+'</h2><p>'+(a.pid!=='me'?'<b>'+t('appt_for',{name:nm(fullName(p))})+'</b><br>':'')+t('appt_confirmed_s',{doc:esc(a.doctor),date:fmtDT(a.when),fac:esc(a.facility)})+'</p></div>'+
     '<div class="receipt"><div class="t">'+(a.mode==='mobile'?t('pay_receipt'):t('booking_receipt'))+'</div><div class="d">'+fmtDate(a.created,{day:'numeric',month:'short',year:'numeric'})+'</div>'+
-    (a.mode==='mobile'?'<div class="kv"><span>'+t('reference')+'</span><b>'+a.pay.ref+'</b></div><div class="kv"><span>'+t('amount_paid')+'</span><b>'+money(a.pay.paid)+'</b></div><div class="kv"><span>'+t('method')+'</span><b>'+a.pay.op+'</b></div>'
+    (a.mode==='mobile'?'<div class="kv"><span>'+t('reference')+'</span><b>'+esc(a.pay.ref)+'</b></div><div class="kv"><span>'+t('amount_paid')+'</span><b>'+money(a.pay.paid)+'</b></div><div class="kv"><span>'+t('method')+'</span><b>'+esc(a.pay.op)+'</b></div>'
       :'<div class="kv"><span>'+t('reference')+'</span><b>RDV-'+a.id.slice(-6)+'</b></div><div class="kv"><span>'+t('to_pay_site')+'</span><b>'+money(a.fee)+'</b></div><div class="kv"><span>'+t('method')+'</span><b>'+t('on_site')+'</b></div>')+'</div>'+
     '<div class="alert">'+I('bell','sm')+'<span>'+t('sms_reminder')+'</span></div>'+
     '<div style="margin-top:18px"><button class="btn" data-go="#/home">'+t('back_home')+'</button><div style="height:10px"></div><button class="btn ghost" data-go="#/appts">'+t('see_appts')+'</button></div></div>','appt');
@@ -530,7 +576,7 @@ function vPharmacy(){
   const draw=()=>{
     const list=D.MEDICINES.filter(m=>(m.name+' '+tx(m.cls)).toLowerCase().includes(q.toLowerCase()));
     const html=list.map(m=>{ const ph=D.PHARMACIES.find(p=>p.id===m.ph); const n=S.cart[m.id]||0;
-      return '<div class="med"><div class="h"><span><b>'+m.name+'</b><small>'+tx(m.cls)+'</small>'+(m.rx?'<span class="badge orange" style="margin-top:6px">Rx</span>':'')+'</span><span class="p">'+money(m.price)+'</span></div><div class="f2"><span class="st">'+t('in_stock_at')+' <b>'+ph.name+'</b> ('+fmtKm(ph.km)+')<br><em>+'+m.more+' '+t('other_pharma')+'</em></span>'+
+      return '<div class="med"><div class="h"><span><b>'+esc(m.name)+'</b><small>'+esc(tx(m.cls))+'</small>'+(m.rx?'<span class="badge orange" style="margin-top:6px">Rx</span>':'')+'</span><span class="p">'+money(m.price)+'</span></div><div class="f2"><span class="st">'+t('in_stock_at')+' <b>'+esc(ph.name)+'</b> ('+fmtKm(ph.km)+')<br><em>+'+m.more+' '+t('other_pharma')+'</em></span>'+
       (n?'<span class="qty"><button data-m="'+m.id+'" data-d="-1">−</button>'+n+'<button data-m="'+m.id+'" data-d="1">+</button></span>':'<button class="add" data-m="'+m.id+'" data-d="1">'+t('add')+'</button>')+'</div></div>'; }).join('')||'<div class="empty">'+t('nothing')+'</div>';
     const box=document.getElementById('ml');
     if(box){ box.innerHTML=html; bind(); bar(); return; }
@@ -550,18 +596,26 @@ function vCart(){
     const items=Object.entries(S.cart);
     if(!items.length){ screen(topbar(t('my_cart'),'')+'<div class="scroll"><div class="card empty" style="margin-top:10px">'+t('cart_empty')+'</div><div style="margin-top:14px"><button class="btn" data-go="#/pharmacy">'+t('see_meds')+'</button></div></div>','home'); return; }
     const sub=cartTotal(), del=mode==='delivery'?1000:0, hasRx=items.some(([id])=>(D.MEDICINES.find(m=>m.id===id)||{}).rx);
+    /* Frais de transaction (1,25 %, mêmes que payFlow) affichés AVANT le
+       paiement : le montant annoncé sur le bouton est le montant débité. */
+    const txFee=Math.round((sub+del)*0.0125), grandTotal=sub+del+txFee;
     screen(topbar(t('my_cart'), t('cart_n',{n:cartCount()}))+'<div class="scroll">'+
-      items.map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id); return '<div class="med"><div class="h"><span><b>'+m.name+'</b><small>'+money(m.price)+' × '+q+'</small></span><span class="qty"><button data-m="'+id+'" data-d="-1">−</button>'+q+'<button data-m="'+id+'" data-d="1">+</button></span></div></div>'; }).join('')+
+      /* Article retiré du catalogue : ligne « produit indisponible » avec
+         retrait du panier, au lieu d'une exception qui casse l'écran. */
+      items.map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id);
+        if(!m) return '<div class="med"><div class="h"><span><b>'+t('item_unavailable')+'</b><small>'+t('cart_n',{n:q})+'</small></span><button class="lnk" data-rm="'+id+'">'+t('remove_item')+'</button></div></div>';
+        return '<div class="med"><div class="h"><span><b>'+esc(m.name)+'</b><small>'+money(m.price)+' × '+q+'</small></span><span class="qty"><button data-m="'+id+'" data-d="-1">−</button>'+q+'<button data-m="'+id+'" data-d="1">+</button></span></div></div>'; }).join('')+
       '<div class="sec">'+t('receive')+'</div><div class="chips"><button class="chip on" data-mo="pickup">'+t('pickup')+'</button></div>'+
       (mode==='delivery'?'<div class="f" style="margin-top:12px"><label>'+t('address')+'</label><input id="ad" placeholder="'+t('address_ph')+'" value="'+esc(addr)+'"></div>':'<div class="alert green" style="margin-top:12px">'+I('store','sm')+'<span>'+t('pickup_note')+'</span></div>')+
-      '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('subtotal')+'</span><b>'+money(sub)+'</b></div>'+(del?'<div class="kv"><span>'+t('delivery')+'</span><b>'+money(del)+'</b></div>':'')+'<div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(sub+del)+'</b></div></div>'+
+      '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('subtotal')+'</span><b>'+money(sub)+'</b></div>'+(del?'<div class="kv"><span>'+t('delivery')+'</span><b>'+money(del)+'</b></div>':'')+'<div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(txFee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(grandTotal)+'</b></div></div>'+
       (hasRx?'<div class="alert orange">'+I('alert','sm')+'<span>'+t('rx_note')+'</span></div>':'')+
-      '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(sub+del)+')</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','home');
+      '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(grandTotal)+')</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','home');
     const ad=document.getElementById('ad'); if(ad) ad.oninput=()=>{ addr=ad.value; ad.parentNode.classList.remove('err'); };
     $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ const id=b.dataset.m; S.cart[id]=Math.max(0,(S.cart[id]||0)+(+b.dataset.d)); if(!S.cart[id]) delete S.cart[id]; save(); draw(); });
+    $app.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ delete S.cart[b.dataset.rm]; save(); draw(); });
     $app.querySelectorAll('[data-mo]').forEach(b=>b.onclick=()=>{ mode=b.dataset.mo; draw(); });
     const check=()=>{ if(mode==='delivery' && !addr.trim()){ const a=document.getElementById('ad'); a.parentNode.classList.add('err'); toast(t('address_req')); return false; } return true; };
-    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK) AFK.syncOrder(o); go('#/ordered/'+o.id); };
+    const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK) AFK.syncOrder(o).then(r=>{ if(r) save(); }); go('#/ordered/'+o.id); };
     document.getElementById('pm').onclick=()=>{ if(!requireLogin('#/cart','login_required_text')) return; if(check()) payFlow(sub+del, p=>place(p)); };
   };
   draw();
@@ -588,7 +642,11 @@ function allPayments(){
   return out.sort((a,b)=>b.at-a.at);
 }
 function lineLabel(l){ return (l==='consult_fee'||l==='delivery')?t(l):esc(l); }
-function maskTel(v){ v=String(v||'').replace(/\D/g,''); return v.length===10? v.slice(0,2)+' '+v.slice(2,4)+' •• •• '+v.slice(8):''; }
+function maskTel(v){ v=String(v||'').replace(/\D/g,''); if(v.length===11 && v.indexOf('226')===0) v=v.slice(3);
+  /* Numéros BF à 8 chiffres : deux premiers et deux derniers visibles.
+     L'ancien format à 10 chiffres reste accepté. */
+  if(v.length===8) return v.slice(0,2)+' •• •• '+v.slice(6);
+  return v.length===10? v.slice(0,2)+' '+v.slice(2,4)+' •• •• '+v.slice(8):''; }
 function payRows(list){
   return '<div class="list">'+list.map(p=>{ const pr=prof(p.pid);
     return '<button class="row payrow" data-go="#/payment/'+p.id+'"><span class="ic '+p.kind+'">'+I(p.kind==='pharmacy'?'pill':'stetho')+'</span><span class="tx"><b>'+esc(tx(p.title))+'</b><small>'+esc(p.place)+'</small><small>'+fmtDT(p.at)+(p.pid!=='me'?' · '+t('for_x',{name:nm(pr.first)}):'')+'</small></span><span class="amt"><b>'+money(p.amount+p.fee)+'</b><small>'+esc(p.op)+'</small></span></button>'; }).join('')+'</div>';
@@ -697,7 +755,7 @@ function trkBody(o){
       const when = o.sb ? (i===k.keys.length-1 && o.done ? fmtTime(o.done) : '') : (i<=k.st ? (i===k.keys.length-1 ? (o.done?fmtTime(o.done):'') : fmtTime(o.at+(k.T[i]||0)*1000)) : '');
       return '<div class="'+(i<=k.st?'done':i===k.st+1?'cur':'')+'">'+t(key)+(when?'<small>'+ISO(when)+'</small>':'')+'</div>'; }).join('')+'</div>';
   h+='<div class="receipt" style="margin-top:6px"><div class="t">'+t('order')+'</div><div class="d">'+o.id+'</div>'+
-    Object.entries(o.items).map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id); return m?'<div class="kv"><span>'+m.name+' × '+q+'</span><b>'+money(m.price*q)+'</b></div>':''; }).join('')+
+    Object.entries(o.items).map(([id,q])=>{ const m=D.MEDICINES.find(x=>x.id===id); return m?'<div class="kv"><span>'+esc(m.name)+' × '+q+'</span><b>'+money(m.price*q)+'</b></div>':''; }).join('')+
     '<div class="kv total"><span>'+t('total')+'</span><b>'+money(o.total)+'</b></div>'+
     '<div class="kv"><span>'+t('method')+'</span><b>'+(o.pay?o.pay.op+' · '+t('trk_paid'):(o.mode==='delivery'?t('cod'):t('at_pharmacy')))+'</b></div>'+
     '<div class="kv"><span>'+t('trk_from')+'</span><b>'+esc(ph.name)+'</b></div>'+
@@ -799,7 +857,11 @@ function cardLang(){ return L()==='en'?'en':'fr'; }
 function CL(fr,en){ return cardLang()==='en'?en:fr; }
 function ncDate(d){ return d.split('/').join(' / '); }
 function healthCard(p){
-  const photo = p.id==='me' ? '<img src="assets/specimen-adult.png" alt="">' : p.photo ? '<img src="'+p.photo+'" alt="">' : SILH;
+  /* Photo spécimen uniquement pour le profil de démonstration : un
+     profil réel sans photo connue affiche la silhouette, jamais la
+     photo d'une autre personne. URL validée par safePhoto (S8). */
+  const ph = safePhoto(p.photo);
+  const photo = (p.id==='me' && !p.real) ? '<img src="assets/specimen-adult.png" alt="">' : ph ? '<img src="'+ph+'" alt="">' : SILH;
   return '<div class="ncw"><div class="nc">'+ncWaves()+
     '<div class="nc-head"><div class="nc-ttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('RÉPUBLIQUE DU BURKINA FASO','REPUBLIC OF BURKINA FASO')+'</i></div><div class="nc-min">'+CL('MINISTÈRE DE LA SANTÉ','MINISTRY OF HEALTH')+'<br>'+CL('UNITÉ · PROGRÈS · JUSTICE','UNITY · PROGRESS · JUSTICE')+'</div><div class="nc-flag">'+BF_FLAG+'</div></div>'+
     '<div class="nc-photo">'+photo+'</div>'+
@@ -808,17 +870,21 @@ function healthCard(p){
     '<div class="nc-wide"><s>'+CL('AUTORITÉ DE DÉLIVRANCE','ISSUING AUTHORITY')+'</s><em>'+CL('Ministère de la Santé','Ministry of Health')+'</em></div>'+
     '<div><s>'+CL('DATE DE DÉLIVRANCE','DATE OF ISSUE')+'</s><u>'+ncDate(p.issued)+'</u></div><div><s>'+CL('VALABLE JUSQU’AU','EXPIRY DATE')+'</s><u>'+ncDate(p.expires)+'</u></div></div>'+
     '<div class="nc-hr"></div><div class="nc-qr">'+qrCode('AFKS:'+String(p.num).replace(/\s+/g,''), p.num)+'</div>'+(p.child?'<div class="nc-minor">'+CL('MINEUR','MINOR')+'</div>':'')+
-    '<div class="nc-num"><s>'+CL('NUMÉRO DE CARTE','CARD NUMBER')+'</s>'+p.num+'</div></div></div>';
+    '<div class="nc-num"><s>'+CL('NUMÉRO DE CARTE','CARD NUMBER')+'</s>'+esc(p.num)+'</div></div></div>';
 }
 function healthCardBack(p){
-  const c = p.child ? [CL('RESPONSABLE LÉGAL','LEGAL GUARDIAN'), D.GUARDIAN.name+' — '+D.GUARDIAN.tel] : [CL('CONTACT D’URGENCE','EMERGENCY CONTACT'), p.contact.name+' — '+p.contact.tel];
-  let bars=''; let h=7; for(const ch of p.num) h=(h*31+ch.charCodeAt(0))>>>0; for(let i=0;i<70;i++){ h^=h<<13;h>>>=0;h^=h>>>17;h^=h<<5;h>>>=0; bars+='<i style="width:'+(1+(h%3))+'px;margin-right:'+(1+((h>>3)%2))+'px"></i>'; }
+  /* Verso : contact d'urgence réel seulement — jamais le contact fictif
+     de démonstration à côté du vrai numéro de carte d'un profil réel. */
+  const c = p.child ? [CL('RESPONSABLE LÉGAL','LEGAL GUARDIAN'), D.GUARDIAN.name+' — '+D.GUARDIAN.tel]
+    : (p.contact ? [CL('CONTACT D’URGENCE','EMERGENCY CONTACT'), p.contact.name+' — '+p.contact.tel]
+                 : [CL('CONTACT D’URGENCE','EMERGENCY CONTACT'), t('em_contact_none')]);
+  let bars=''; let h=7; for(const ch of String(p.num||'')) h=(h*31+ch.charCodeAt(0))>>>0; for(let i=0;i<70;i++){ h^=h<<13;h>>>=0;h^=h>>>17;h^=h<<5;h>>>=0; bars+='<i style="width:'+(1+(h%3))+'px;margin-right:'+(1+((h>>3)%2))+'px"></i>'; }
   const rule=['#0f3550','#008751','#fcd116','#e8112d','#1e8ea3'].map(c=>'<i style="background:'+c+'"></i>').join('');
   return '<div class="ncw"><div class="nc">'+ncWaves()+
     '<div class="nc-vhead"><div class="nc-vttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('UNITÉ · PROGRÈS · JUSTICE','UNITY · PROGRESS · JUSTICE')+'</i></div><img class="nc-logo nc-mark" src="assets/logo-mark.png" alt=""></div>'+
     '<div class="nc-rule">'+rule+'</div>'+
     '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 15 · Police 17 · Gendarmerie 16','Fire 18 · SAMU 15 · Police 17 · Gendarmerie 16')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
-    '<div class="nc-bar"><div class="nc-bars">'+bars+'</div><span>'+p.num+'</span></div>'+
+    '<div class="nc-bar"><div class="nc-bars">'+bars+'</div><span>'+esc(p.num)+'</span></div>'+
     '<div class="nc-foot"><span>'+CL('PROPRIÉTÉ DE L’ÉTAT','PROPERTY OF THE STATE')+'</span><span>'+CL('« LA PATRIE OU LA MORT, NOUS VAINCRONS »','“HOMELAND OR DEATH, WE SHALL OVERCOME”')+'</span></div></div></div>';
 }
 function fitCards(){ document.querySelectorAll('.ncw').forEach(w=>{ const c=w.firstChild; if(c) c.style.transform='scale('+(w.clientWidth/548)+')'; }); }
@@ -843,7 +909,7 @@ function vCard(){
 function insSummary(p){
   /* Badge « Actif » seulement si une affiliation est connue active
      (souscription enregistrée) ; sinon statut à confirmer. */
-  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+'</small></span>'+(S.ins.comp[p.id]?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div>'+'</button>';
+  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:fullName(prof('me'))}):t('ins_arch_s'))+'</small></span>'+(S.ins.comp[p.id]?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div>'+'</button>';
 }
 function vInsurance(){
   const p=cur();
@@ -852,28 +918,39 @@ function vInsurance(){
     const linkHtml = p.id==='me' ? (link ? '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('linked_ins')+' · '+esc(link.name)+'</b><small>'+t('ins_t_'+link.type)+' · '+ISO(esc(link.no))+'</small></span>'+badge('orange',t('pending'))+'</div></div>'
       : '<button class="btn ghost" id="lk">'+I('shield','sm')+t('link_ins')+'</button>') : '';
     screen(topbar(t('ins_title'), t('ins_sub'))+'<div class="scroll">'+actingBanner()+
-      '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+' · '+ISO(p.num)+'</small></span>'+(c?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div></div>'+
+      '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:fullName(prof('me'))}):t('ins_arch_s'))+' · '+ISO(p.num)+'</small></span>'+(c?badge('green',t('active')):badge('gray',t('ins_status_unknown')))+'</div></div>'+
       linkHtml+
       (p.child?'<button class="btn ghost" id="holder" style="margin-top:12px">'+I('swap','sm')+t('ins_see_holder')+'</button>':'')+
       '<p class="demo">'+t('ins_demo')+'</p></div>', S.who==='me'?'profile':'family');
     bindWho();
     const hd=document.getElementById('holder'); if(hd) hd.onclick=()=>{ setWho('me',true); vInsurance(); };
     const lk=document.getElementById('lk'); if(lk) lk.onclick=()=>linkSheet(draw);
+    /* Saisie interrompue par l'écran de connexion : la feuille se rouvre
+       avec les valeurs déjà tapées (patron de reprise de la réservation). */
+    if(linkDraft){ const d=linkDraft; linkDraft=null; linkSheet(draw, d); }
   };
   draw();
 }
-function linkSheet(after){
-  let type='emp';
+let linkDraft = null;
+function linkSheet(after, prefill){
+  let type=(prefill&&prefill.type)||'emp';
+  let name=(prefill&&prefill.name!=null)?prefill.name:(type==='arch'?'RAMU':'');
+  let no=(prefill&&prefill.no)||'';
   sheet('',s=>{
+    const capture=()=>{ const i1=s.querySelector('#inn'), i2=s.querySelector('#ino'); if(i1) name=i1.value; if(i2) no=i2.value; };
     const draw=()=>{ s.querySelector('.sheet').innerHTML='<div class="grab"></div><h3>'+t('link_ins')+'</h3><p>'+t('link_ins_p')+'</p>'+
       '<div class="f"><label>'+t('ins_type')+'</label><div class="chips">'+['arch','emp','mut','priv'].map(k=>'<button class="chip '+(type===k?'on':'')+'" data-ty="'+k+'">'+t('ins_t_'+k)+'</button>').join('')+'</div></div>'+
-      '<div class="f"><label>'+t('insurer_name')+'</label><input id="inn" value="'+(type==='arch'?'RAMU':'')+'"></div><div class="f"><label>'+t('ins_no')+'</label><input id="ino" dir="ltr"></div>'+
+      '<div class="f"><label>'+t('insurer_name')+'</label><input id="inn" value="'+esc(name)+'"></div><div class="f"><label>'+t('ins_no')+'</label><input id="ino" dir="ltr" value="'+esc(no)+'"></div>'+
       '<button class="btn" id="ls">'+t('link_send')+'</button>';
-      s.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ type=b.dataset.ty; draw(); });
-      s.querySelector('#ls').onclick=()=>{ if(!requireLogin('#/insurance','login_required_text')) return; const n=s.querySelector('#inn').value.trim(), no=s.querySelector('#ino').value.trim(); let ok=true;
-        if(!n){ s.querySelector('#inn').parentNode.classList.add('err'); ok=false; } if(!no){ s.querySelector('#ino').parentNode.classList.add('err'); ok=false; }
+      s.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ capture(); type=b.dataset.ty; if(type==='arch' && !name) name='RAMU'; draw(); });
+      s.querySelector('#ls').onclick=()=>{ capture(); const n=name.trim(), num=no.trim();
+        /* La saisie est lue et conservée AVANT le garde de connexion :
+           si l'écran compte s'interpose, linkDraft la restitue au retour. */
+        if(!requireLogin('#/insurance','login_required_text')){ linkDraft={type, name:n, no:num}; return; }
+        let ok=true;
+        if(!n){ s.querySelector('#inn').parentNode.classList.add('err'); ok=false; } if(!num){ s.querySelector('#ino').parentNode.classList.add('err'); ok=false; }
         if(!ok){ toast(t('fill_required')); return; }
-        S.ins.link={type, name:n, no, at:Date.now()}; addNotif('shield',t('n_ins_t'),t('link_ok')); save(); closeSheet(); toast(t('link_ok')); after(); };
+        S.ins.link={type, name:n, no:num, at:Date.now()}; addNotif('shield',t('n_ins_t'),t('link_ok')); save(); closeSheet(); toast(t('link_ok')); after(); };
     };
     draw();
   });
@@ -887,8 +964,18 @@ window.AFK_MERGE = function(h){
   if(!h) return;
   S.ins = S.ins || {comp:{}, link:null};
   S.ins.comp = S.ins.comp || {};
-  if(h.orders) S.orders = (S.orders||[]).filter(o=>!o.sb).concat(h.orders).sort((a,b)=>b.at-a.at);
-  if(h.appts) S.appts = (S.appts||[]).filter(a=>!a.sb).concat(h.appts);
+  /* Déduplication sur l'identifiant backend : un élément local déjà
+     synchronisé (sb, ou porteur de sbId/sbIds) ne coexiste jamais avec
+     sa copie relue de la base — sinon chaque relecture d'historique
+     créerait un doublon visible (et un double paiement affiché). */
+  if(h.orders){
+    const oIds = new Set(); h.orders.forEach(o=>{ if(o.sbId) oIds.add(o.sbId); (o.sbIds||[]).forEach(i=>oIds.add(i)); });
+    S.orders = (S.orders||[]).filter(o=>!o.sb && !(o.sbId && oIds.has(o.sbId)) && !(o.sbIds||[]).some(i=>oIds.has(i))).concat(h.orders).sort((a,b)=>b.at-a.at);
+  }
+  if(h.appts){
+    const aIds = new Set(h.appts.map(a=>a.sbId).filter(Boolean));
+    S.appts = (S.appts||[]).filter(a=>!a.sb && !(a.sbId && aIds.has(a.sbId))).concat(h.appts);
+  }
   if(h.insByProfile) for(const pid in h.insByProfile) S.ins.comp[pid] = h.insByProfile[pid];
   if(h.notifs && h.notifs.length){
     const seen = new Set((S.notifs||[]).map(n=>n.sbId).filter(Boolean));
@@ -897,6 +984,11 @@ window.AFK_MERGE = function(h){
   }
   save();
 };
+/* backend.js signale chaque synchronisation réussie (« afk-synced ») :
+   persister aussitôt les identifiants backend rattachés à l'élément
+   local (sbId, sbDone…) — un rechargement avant le prochain save()
+   les perdrait et la relecture d'historique recréerait un doublon. */
+window.addEventListener('afk-synced', ()=>{ save(); });
 /* ---------- Synchronisation différée ----------
    backend.js signale chaque échec d'écriture par l'événement
    « afk-sync-fail » : l'élément reste enregistré sur l'appareil (succès
@@ -911,8 +1003,13 @@ window.addEventListener('afk-sync-fail', e=>{
 });
 function retryPendingSync(){
   if(!(window.AFK && AFK.connected())) return;
+  /* Créations : uniquement les éléments NON marqués sb (idempotence —
+     un élément marqué est déjà en base ; syncAppt/syncOrder reprennent
+     en interne le seul paiement manquant grâce à sbId/sbDone). */
   (S.appts||[]).filter(a=>a.pendingSync && !a.sb).forEach(a=>{ AFK.syncAppt(a).then(r=>{ if(r){ a.pendingSync=false; save(); } }); });
   (S.orders||[]).filter(o=>o.pendingSync && !o.sb).forEach(o=>{ AFK.syncOrder(o).then(r=>{ if(r){ o.pendingSync=false; save(); } }); });
+  /* Annulations non propagées : reprises ici jusqu'à confirmation. */
+  (S.appts||[]).filter(a=>a.cancelPending && a.sbId).forEach(a=>{ AFK.cancelAppt(a); });
 }
 window.addEventListener('online', retryPendingSync);
 function accountRow(){
@@ -938,7 +1035,14 @@ function authErr(e){
 function purgeAccountData(){
   S.appts=(S.appts||[]).filter(a=>!a.sb);
   S.orders=(S.orders||[]).filter(o=>!o.sb);
+  S.notifs=(S.notifs||[]).filter(n=>!n.sbId);
   if(S.ins && S.ins.comp) for(const pid in S.ins.comp){ if(S.ins.comp[pid] && S.ins.comp[pid].sb) delete S.ins.comp[pid]; }
+  /* Mémoire aussi : le profil réel injecté dans DATA (nom, numéro de
+     carte, contact d'urgence, dossier relu) est restauré à l'état de
+     démonstration capturé au démarrage — sans rechargement, aucun écran
+     (accueil, carte, SOS, dossier) ne montre encore les données du
+     compte précédent. */
+  if(window.AFK && AFK.resetDemoData) AFK.resetDemoData();
   S.who='me'; save();
 }
 /* Écran de bienvenue après connexion réussie (cahier P8) : « Bienvenue,
@@ -977,9 +1081,9 @@ function vAccount(){
     screen(topbar(t('account'),'')+'<div class="scroll">'+
       ((pendingLogin && pendingLogin.msg) ? '<div class="alert blue">'+I('info','sm')+'<span>'+t(pendingLogin.msg)+'</span></div>' : '<div class="alert blue">'+I('info','sm')+'<span>'+t('demo_mode_note')+'</span></div>')+
       '<div class="chips" style="margin:12px 0"><button class="chip '+(mode==='in'?'on':'')+'" data-m="in">'+t('sign_in')+'</button><button class="chip '+(mode==='up'?'on':'')+'" data-m="up">'+t('sign_up')+'</button></div>'+
-      (mode==='up' ? '<div class="f"><label>'+t('full_name')+'</label><input id="an" autocomplete="name" placeholder="Ex : Awa Ouédraogo"></div>' : '')+
-      '<div class="f"><label>'+t('email')+'</label><input id="ae" type="email" autocomplete="email" placeholder="vous@exemple.com"></div>'+
-      '<div class="f"><label>'+t('password')+'</label><input id="ap" type="password" autocomplete="'+(mode==='up'?'new-password':'current-password')+'" placeholder="••••••••"></div>'+
+      (mode==='up' ? '<div class="f"><label>'+t('full_name')+'</label><input id="an" autocomplete="name" placeholder="'+t('ph_full_name')+'"></div>' : '')+
+      '<div class="f"><label>'+t('email')+'</label><input id="ae" type="email" autocomplete="email" placeholder="'+t('ph_email')+'"></div>'+
+      '<div class="f"><label>'+t('password')+'</label><input id="ap" type="password" autocomplete="'+(mode==='up'?'new-password':'current-password')+'"'+(mode==='up'?' minlength="8"':'')+' placeholder="••••••••"></div>'+
       '<div id="aerr"></div>'+
       '<div style="margin-top:14px"><button class="btn blue" id="ago">'+(mode==='up' ? t('sign_up') : t('sign_in'))+'</button></div>'+
       (mode==='in' ? '<div style="margin-top:10px;text-align:center"><button class="lnk" id="afp">'+t('forgot_password')+'</button></div>' : '')+
@@ -993,6 +1097,9 @@ function vAccount(){
       const err = m => { document.getElementById('aerr').innerHTML = '<div class="alert orange" style="margin-top:10px">'+I('alert','sm')+'<span>'+esc(m)+'</span></div>'; };
       if(!email || !pw || (mode==='up' && !name)){ err(t('fill_required')); return; }
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err(t('err_email')); return; }
+      /* Inscription : mot de passe d'au moins 8 caractères, comme la
+         réinitialisation — rejeté côté client avant tout appel réseau. */
+      if(mode==='up' && pw.length<8){ err(t('err_password')); return; }
       const btn = document.getElementById('ago'); btn.disabled = true;
       const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
       act.then(()=>{ S.acctSeen = 1; save(); const resume = pendingLogin ? pendingLogin.next : null; pendingLogin = null; vWelcome(resume); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
@@ -1034,8 +1141,8 @@ function vSearch(q){
   const docs=[]; ['pub','clin','cab'].forEach(tp=>D.FACILITIES[tp].forEach(f=>D.SPECIALTIES.forEach(sp=>D.doctorsFor(f.id,sp).forEach(d=>{ if(d.name.toLowerCase().includes(s)&&docs.length<6) docs.push({d,f,sp,tp}); }))));
   const sec=(title,html)=>html?'<div class="sec">'+title+'</div><div class="list">'+html+'</div>':'';
   const html = sec(t('specialties'), specs.map(x=>'<button class="row" data-go="#/book/'+x+'"><span class="ic">'+I('stetho','sm')+'</span><span class="tx"><b>'+t('spec_'+x)+'</b></span>'+I('chev','sm chev')+'</button>').join(''))+
-    sec(t('doctors_l'), docs.map(o=>'<button class="row" data-go="#/book/fac/'+o.tp+'/'+o.f.id+'"><span class="av" style="width:40px;height:40px;font-size:13px">'+o.d.ini+'</span><span class="tx"><b>'+o.d.name+'</b><small>'+t('spec_'+o.sp)+' · '+esc(o.f.name)+'</small></span>'+I('chev','sm chev')+'</button>').join(''))+
-    sec(t('medicines'), meds.map(m=>'<button class="row" data-go="#/pharmacy"><span class="ic">'+I('pill','sm')+'</span><span class="tx"><b>'+m.name+'</b><small>'+money(m.price)+'</small></span>'+I('chev','sm chev')+'</button>').join(''))+
+    sec(t('doctors_l'), docs.map(o=>'<button class="row" data-go="#/book/fac/'+o.tp+'/'+o.f.id+'"><span class="av" style="width:40px;height:40px;font-size:13px">'+o.d.ini+'</span><span class="tx"><b>'+esc(o.d.name)+'</b><small>'+t('spec_'+o.sp)+' · '+esc(o.f.name)+'</small></span>'+I('chev','sm chev')+'</button>').join(''))+
+    sec(t('medicines'), meds.map(m=>'<button class="row" data-go="#/pharmacy"><span class="ic">'+I('pill','sm')+'</span><span class="tx"><b>'+esc(m.name)+'</b><small>'+money(m.price)+'</small></span>'+I('chev','sm chev')+'</button>').join(''))+
     sec(t('hosp_cs'), facs.map(f=>'<button class="row" data-go="#/hospitals"><span class="ic">'+I('hospital','sm')+'</span><span class="tx"><b>'+esc(f.name)+'</b><small>'+esc(f.area)+'</small></span>'+I('chev','sm chev')+'</button>').join(''));
   screen(topbar(t('results'), '« '+esc(q)+' »')+'<div class="scroll"><form class="search" id="sf" style="margin-top:0">'+I('search','sm')+'<input id="q" value="'+esc(q)+'"></form>'+(html||'<div class="card empty" style="margin-top:14px">'+t('no_result')+'</div>')+'</div>','home');
   document.getElementById('sf').onsubmit=e=>{ e.preventDefault(); const v=document.getElementById('q').value.trim(); if(v) go('#/search/'+encodeURIComponent(v)); };
@@ -1124,6 +1231,10 @@ function demoNotice(btnKey){
 /* ---------- router ---------- */
 function route(){
   closeSheet();
+  /* Quitter l'écran de réinitialisation autrement que par « Valider »
+     (navigation, retour…) efface le jeton de récupération : il ne doit
+     pas rester utilisable en session après coup. */
+  if(recovery) clearRecovery();
   if(!S.lang && location.hash!=='#/lang'){ return vSplash(); }
   seed();
   const h=(location.hash||'#/home').replace(/^#\/?/,''); const [p,...a]=h.split('/');
@@ -1164,6 +1275,9 @@ document.addEventListener('click', e=>{
   const g=e.target.closest('[data-go]'); if(g){ e.preventDefault(); go(g.dataset.go); return; }
   const b=e.target.closest('[data-back]'); if(b){ e.preventDefault(); if(history.length>1) history.back(); else go('#/home'); }
 });
+/* Hook de rafraîchissement pour backend.js : re-rendre la vue courante
+   quand le catalogue backend arrive (le routeur reste interne). */
+window.AFK_REFRESH = route;
 window.addEventListener('hashchange', route);
 applyDir();
 if(recovery){ vReset(); }

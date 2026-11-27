@@ -129,3 +129,60 @@ MODE INVITÉ + RESET (faits le 27/11/2026, assets v16 / SW v10)
   traduit et renvoi vers l'écran Compte pour redemander un lien.
   Reste côté projet Supabase (dashboard) : la Site URL et la liste des
   Redirect URLs doivent autoriser l'adresse du site patient.
+
+PASSE QA / SÉCURITÉ DE NUIT (faits le 27/11/2026, assets v17 / SW v11)
+- Doublons après relecture d'historique (B1) : syncAppt/syncOrder
+  marquent l'objet local avec l'identifiant backend (sbId, et sbDone
+  par pharmacie pour les commandes) dès la création — avant même le
+  paiement, qui peut être repris seul. AFK_MERGE déduplique sur ces
+  identifiants ; un événement « afk-synced » persiste le marquage
+  immédiatement. Les réessais (retryPendingSync) ne concernent que les
+  éléments non marqués sb.
+- Fuite d'identité après déconnexion (B2) : backend.js capture au
+  démarrage des copies profondes de démonstration du profil « me » et
+  du dossier ; à la déconnexion, purgeAccountData les restaure
+  (AFK.resetDemoData), purge aussi les notifications du compte —
+  aucun écran ne montre plus les données du compte précédent sans
+  rechargement.
+- Annulation propagée (G2) : AFK.cancelAppt appelle le RPC
+  cancel_own_appointment (migration 007 ; repli PATCH REST si la
+  fonction est absente). Échec : cancelPending + toast + réessai
+  automatique — le rendez-vous ne « ressuscite » plus.
+- Mélanges démo/réel (G3) : un profil réel n'affiche plus le contact
+  d'urgence fictif (SOS et verso de carte montrent « Aucun contact
+  enregistré » tant que le vrai contact n'est pas lu), ni la photo
+  spécimen (silhouette à la place) ; les dates de la carte viennent de
+  la vraie carte (patient_cards) ; un nom réel en un seul mot ne garde
+  plus le nom de famille de démonstration.
+- Panier (G4) : un article disparu du catalogue s'affiche « Produit
+  indisponible » avec bouton Retirer, sans casser l'écran.
+- Réseau (G5) : délai maximal ~15 s par requête (AbortController),
+  rafraîchissement de jeton unique partagé entre appels concurrents,
+  sur 401 : un rafraîchissement forcé puis un seul rejeu ; si le
+  rafraîchissement échoue, la session locale est nettoyée.
+- Établissement non apparié (G8) : syncAppt émet syncFailed comme les
+  autres échecs (marquage « en attente » + toast + réessai), jamais
+  d'abandon silencieux.
+- Rendez-vous passés (G9) : section « Rendez-vous passés » distincte
+  des annulés ; plus de bouton d'annulation sur un rendez-vous passé.
+- Total pré-paiement (G10) : les frais de transaction de 1,25 % sont
+  affichés en ligne séparée à l'étape 5 de la réservation et dans le
+  panier ; le bouton de paiement annonce le total réellement débité.
+- Rattachement assurance (G11) : la saisie est lue et conservée avant
+  le garde de connexion ; au retour, la feuille se rouvre avec les
+  valeurs tapées.
+- Titulaire assurance (G12) : le nom affiché est celui du titulaire du
+  compte courant, plus de nom codé en dur.
+- Arabe complet (G1) : le bloc compte (18 clés) est traduit — parité
+  FR = EN = AR = 485 clés.
+- Sécurité : mot de passe d'inscription d'au moins 8 caractères (S6,
+  aligné sur la réinitialisation) ; échappement des noms de produits,
+  médecins et références de paiement, et validation des URL de photo
+  (http(s), data:image ou chemin relatif simple) sinon initiales (S8).
+- Divers : masque de téléphone adapté aux numéros BF à 8 chiffres
+  (préfixe 226 retiré) ; jeton de récupération effacé dès qu'on quitte
+  l'écran de réinitialisation autrement que par « Valider » ; routeur
+  gardé (#/book/9, type d'établissement inconnu → retour propre) ;
+  validation de forme de l'état persisté au chargement ; libellés du
+  dossier relu (constantes, allergies, maladies chroniques) traduits
+  FR/EN/AR au lieu du français figé.

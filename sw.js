@@ -1,6 +1,6 @@
 /* AfrikSol Santé — mise en cache pour un usage hors ligne (les appels d'urgence passent par le téléphone, sans internet) */
-const CACHE = 'afriksolsante-bf-v10';
-const FILES = ['./','index.html','styles.css?v=16','i18n.js?v=16','data.js?v=16','backend.js?v=16','qrcode.min.js?v=16','app.js?v=16','manifest.webmanifest',
+const CACHE = 'afriksolsante-bf-v11';
+const FILES = ['./','index.html','styles.css?v=17','i18n.js?v=17','data.js?v=17','backend.js?v=17','qrcode.min.js?v=17','app.js?v=17','manifest.webmanifest',
   'assets/logo-mark.png','assets/icon-192.png','assets/icon-512.png','assets/apple-touch-icon.png','assets/child-kevin.jpg','assets/specimen-adult.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

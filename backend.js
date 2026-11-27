@@ -41,6 +41,42 @@
   };
   window.AFK = AFK;
 
+  /* Copie profonde des données de démonstration (profil « me » et dossier),
+     capturée au chargement du script — avant toute injection de données
+     réelles (applyRealProfile/pullRecords). Elle sert à restaurer l'état
+     de démonstration à la déconnexion : sans elle, l'identité et le
+     dossier du compte précédent resteraient affichés dans la session
+     en cours (téléphone partagé), sans rechargement de la page. */
+  var demoSnapshot = null;
+  (function () {
+    var D = window.DATA;
+    if (!D) return;
+    try {
+      var me0 = (D.PROFILES || []).find(function (x) { return x.id === 'me'; });
+      demoSnapshot = {
+        me: me0 ? JSON.parse(JSON.stringify(me0)) : null,
+        records: JSON.parse(JSON.stringify(D.RECORDS || {}))
+      };
+    } catch (e) { demoSnapshot = null; }
+  })();
+  AFK.resetDemoData = function () {
+    var D = window.DATA;
+    if (!D || !demoSnapshot) return;
+    if (demoSnapshot.me) {
+      var me = (D.PROFILES || []).find(function (x) { return x.id === 'me'; });
+      if (me) {
+        var copy = JSON.parse(JSON.stringify(demoSnapshot.me));
+        Object.keys(me).forEach(function (k) { if (!(k in copy)) delete me[k]; });
+        Object.keys(copy).forEach(function (k) { me[k] = copy[k]; });
+      }
+    }
+    if (D.RECORDS && demoSnapshot.records) {
+      var recs = JSON.parse(JSON.stringify(demoSnapshot.records));
+      Object.keys(D.RECORDS).forEach(function (pid) { if (!(pid in recs)) delete D.RECORDS[pid]; });
+      Object.keys(recs).forEach(function (pid) { D.RECORDS[pid] = recs[pid]; });
+    }
+  };
+
   function saveAuth(data, email) {
     if (!data || !data.access_token || !data.user) return null;
     var s = {
@@ -53,38 +89,68 @@
     return s;
   }
 
-  function fresh() {
+  /* Rafraîchissement du jeton : UNE seule requête en vol à la fois
+     (promesse partagée entre tous les appels concurrents) — Supabase
+     fait tourner les refresh tokens, et des rafraîchissements
+     simultanés avec le même jeton peuvent invalider la session.
+     Résout true si un jeton d'accès valide est disponible ensuite. */
+  var refreshInFlight = null;
+  function fresh(force) {
     var s = AFK.session();
-    if (!s || !s.refresh_token || !s.expires_at || s.expires_at > Date.now() + 60000) return Promise.resolve();
-    return fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+    if (!s || !s.refresh_token) return Promise.resolve(false);
+    if (!force && s.expires_at && s.expires_at > Date.now() + 60000) return Promise.resolve(true);
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
       headers: { apikey: SB_ANON, 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: s.refresh_token })
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.access_token) saveAuth(d, s.user.email);
-    }).catch(function () {});
+      if (d && d.access_token) { saveAuth(d, s.user.email); return true; }
+      return false;
+    }, function () { return false; });
+    refreshInFlight.then(function () { refreshInFlight = null; });
+    return refreshInFlight;
   }
 
   function call(path, opts, auth) {
-    var run = function () {
-      var o = opts || {};
+    var attempt = function (retried) {
+      var src = opts || {}, o = {};
+      Object.keys(src).forEach(function (k) { o[k] = src[k]; });
       var s = AFK.session();
       o.headers = { apikey: SB_ANON, 'Content-Type': 'application/json', Authorization: 'Bearer ' + (auth && s ? s.access_token : SB_ANON) };
       if (o.prefer) { o.headers.Prefer = o.prefer; delete o.prefer; }
       if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
+      /* Délai maximal par requête (~15 s) : un réseau qui pend ne doit
+         pas bloquer indéfiniment un écran (bouton « Se connecter »
+         désactivé, synchronisations en attente…). */
+      var ctrl = ('AbortController' in window) ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
+      if (ctrl) o.signal = ctrl.signal;
       return fetch(SB_URL + path, o).then(function (r) {
+        if (timer) clearTimeout(timer);
+        if (r.status === 401 && auth && !retried && s) {
+          /* Jeton rejeté : UN rafraîchissement forcé, puis UN rejeu.
+             Si le rafraîchissement échoue, la session locale est
+             nettoyée (connected() redevient faux et l'app invite à se
+             reconnecter) au lieu d'enchaîner les 401 en boucle. */
+          return fresh(true).then(function (ok) {
+            if (ok) return attempt(true);
+            lsSet(SKEY, null); lsSet(PKEY, null);
+            var err = new Error(msg('err_session')); err.status = 401; throw err;
+          });
+        }
         return r.text().then(function (txt) {
           var data = null;
           try { data = txt ? JSON.parse(txt) : null; } catch (e) {}
           if (!r.ok) {
-            var msg = (data && (data.message || data.msg || data.error_description || data.error)) || ('HTTP ' + r.status);
-            var err = new Error(msg); err.status = r.status; err.data = data; throw err;
+            var m = (data && (data.message || data.msg || data.error_description || data.error)) || ('HTTP ' + r.status);
+            var err2 = new Error(m); err2.status = r.status; err2.data = data; throw err2;
           }
           return data;
         });
-      });
+      }, function (e) { if (timer) clearTimeout(timer); throw e; });
     };
-    return auth ? fresh().then(run) : run();
+    return auth ? fresh().then(function () { return attempt(false); }) : attempt(false);
   }
   function rest(path, opts) { return call('/rest/v1' + path, opts, true); }
   function rpc(name, args) { return call('/rest/v1/rpc/' + name, { method: 'POST', body: args || {} }, true); }
@@ -177,11 +243,13 @@
     if (!me) return;
     var fn = p.first_name || '', ln = p.last_name || '';
     if (!fn && !ln && p.full_name) {
-      var parts = String(p.full_name).trim().split(/\s+/);
+      var parts = String(p.full_name).trim().split(/\s+/).filter(Boolean);
       fn = parts[0] || ''; ln = parts.slice(1).join(' ');
     }
-    if (fn) me.first = fn;
-    if (ln) me.last = ln;
+    /* Nom réel connu — même en un seul mot : les deux champs viennent du
+       dossier. On ne conserve jamais le nom de famille de démonstration
+       à côté d'un prénom réel (identité mélangée). */
+    if (fn || ln) { me.first = fn; me.last = ln; }
     if (p.health_id) me.num = p.health_id;
     var born = p.birth_date || p.date_of_birth || p.born;
     if (born) me.born = String(born).slice(0, 10);
@@ -189,6 +257,25 @@
     var blood = p.blood_group || p.blood;
     if (blood) me.blood = blood;
     me.real = true;
+    /* Contact d'urgence et dates de carte : tant que les vraies données
+       ne sont pas connues, on n'affiche PAS celles de la démonstration —
+       un numéro fictif présenté comme le contact d'urgence du patient
+       réel (écran SOS) et des dates fictives à côté du vrai numéro de
+       carte seraient dangereux. Les lectures ci-dessous les remplacent
+       dès qu'elles aboutissent. */
+    me.contact = null;
+    me.issued = ''; me.expires = '';
+    rest('/emergency_contacts?patient_id=eq.' + p.id + '&select=full_name,relationship,phone&order=is_primary.desc&limit=1').then(function (rows) {
+      var c = first(rows);
+      if (c && c.full_name) me.contact = { name: c.full_name, rel: c.relationship || '', tel: c.phone || '' };
+    }).catch(function () {});
+    rest('/patient_cards?patient_id=eq.' + p.id + '&select=printed_at,created_at,expires_at&order=created_at.desc&limit=1').then(function (rows) {
+      var card = first(rows);
+      if (!card) return;
+      var df = function (ts) { if (!ts) return ''; var d = new Date(ts); function z(n) { return (n < 10 ? '0' : '') + n; } return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear(); };
+      me.issued = df(card.printed_at || card.created_at);
+      me.expires = df(card.expires_at);
+    }).catch(function () {});
     /* Allergie connue la plus récente (affichée notamment sur l'écran SOS) */
     rest('/allergies?patient_id=eq.' + p.id + '&select=label&order=recorded_at.desc&limit=1').then(function (rows) {
       var a = first(rows);
@@ -245,6 +332,14 @@
     try { window.dispatchEvent(new CustomEvent('afk-sync-fail', { detail: { kind: kind, ref: ref || null } })); } catch (e) {}
   }
 
+  /* Synchronisation (même partielle) réussie : app.js est prévenu pour
+     persister aussitôt les identifiants backend rattachés à l'élément
+     local (sbId, sbDone…) — sans quoi un rechargement de la page les
+     perdrait, et la relecture d'historique recréerait un doublon. */
+  function synced(kind, ref) {
+    try { window.dispatchEvent(new CustomEvent('afk-synced', { detail: { kind: kind, ref: ref || null } })); } catch (e) {}
+  }
+
   /* Commande du panier : une commande backend par pharmacie concernée
      (les articles purement locaux, sans orgId, restent locaux).
      Le bénéficiaire est le profil de la commande (moi ou un membre). */
@@ -270,12 +365,32 @@
     var orgIds = Object.keys(groups);
     if (!orgIds.length) return Promise.resolve(null);
     var s = AFK.session(), feeGiven = false, receipts = [];
+    /* Idempotence des réessais : o.sbDone mémorise, par pharmacie, la
+       commande déjà créée en base (et si son paiement a abouti). Un
+       réessai reprend là où la tentative précédente s'était arrêtée —
+       jamais de deuxième commande pour la même pharmacie. */
+    o.sbDone = o.sbDone || {};
     return orgIds.reduce(function (chain, orgId) {
       return chain.then(function () {
         var items = groups[orgId];
         var sub = items.reduce(function (a, it) { return a + it.med.price * it.qty; }, 0);
         var fee = (o.mode === 'delivery' && !feeGiven) ? 1000 : 0;
         feeGiven = true;
+        var finishPay = function (orderId) {
+          return payFor('order', orderId, sub + fee, o.pay && o.pay.op, { order_id: orderId }, p).then(function (pay) {
+            o.sbDone[orgId] = { id: orderId, paid: true };
+            synced('order', o.id);
+            return rest('/receipts?payment_id=eq.' + pay.id + '&select=number').then(function (rc) {
+              var r = first(rc);
+              receipts.push({ order: orderId, receipt: r ? r.number : null });
+            }).catch(function () { receipts.push({ order: orderId, receipt: null }); });
+          });
+        };
+        var doneRec = o.sbDone[orgId];
+        if (doneRec && doneRec.id) {
+          if (doneRec.paid) { receipts.push({ order: doneRec.id, receipt: null }); return null; }
+          return finishPay(doneRec.id);
+        }
         var body = {
           patient_id: p.id, ordered_by: s.user.id, pharmacy_org_id: orgId,
           status: 'pending_payment', fulfillment: o.mode === 'delivery' ? 'delivery' : 'pickup',
@@ -284,20 +399,25 @@
         };
         return rest('/orders', { method: 'POST', prefer: 'return=representation', body: body }).then(function (ord) {
           ord = first(ord);
+          o.sbDone[orgId] = { id: ord.id, paid: false };
+          synced('order', o.id);
           var lines = items.map(function (it) {
             return { order_id: ord.id, product_id: it.med.productId || null, product_name: it.med.name, unit_price_fcfa: it.med.price, quantity: it.qty };
           });
           return rest('/order_items', { method: 'POST', body: lines }).then(function () {
-            return payFor('order', ord.id, sub + fee, o.pay && o.pay.op, { order_id: ord.id }, p);
-          }).then(function (pay) {
-            return rest('/receipts?payment_id=eq.' + pay.id + '&select=number').then(function (rc) {
-              var r = first(rc);
-              receipts.push({ order: ord.id, receipt: r ? r.number : null });
-            }).catch(function () { receipts.push({ order: ord.id, receipt: null }); });
+            return finishPay(ord.id);
           });
         });
       });
     }, Promise.resolve()).then(function () {
+      /* Toutes les pharmacies sont synchronisées : l'objet local est
+         marqué avec les identifiants backend — la relecture
+         d'historique (AFK_MERGE) déduplique dessus et le paiement lié
+         ne s'affiche qu'une fois. */
+      o.sb = true;
+      o.sbIds = orgIds.map(function (g) { return o.sbDone[g].id; });
+      o.pendingSync = false;
+      synced('order', o.id);
       if (window.console) console.info('[AfrikSol] Commande(s) enregistrée(s) dans la base partagée :', receipts);
       return receipts;
     }).catch(function (e) {
@@ -307,23 +427,56 @@
     });
   };
 
-  /* Rendez-vous : réservation réelle + paiement des frais si payé en mobile */
+  /* Rendez-vous : réservation réelle + paiement des frais si payé en mobile.
+     Au succès, l'objet local est marqué (sb + sbId = identifiant backend) :
+     la relecture d'historique déduplique dessus, et un réessai ne recrée
+     jamais le rendez-vous — il reprend seulement le paiement manquant. */
   AFK.syncAppt = function (a) {
     if (!AFK.connected() || !a) return Promise.resolve(null);
     var orgId = AFK.orgByName[normalizeName(a.facility)];
-    if (!orgId) return Promise.resolve(null);
+    if (!orgId) {
+      /* Établissement non apparié à l'annuaire backend : JAMAIS d'abandon
+         silencieux — l'échec est signalé comme les autres (marquage
+         « en attente » + toast + réessai au retour du réseau). */
+      if (window.console) console.warn('[AfrikSol] Rendez-vous non synchronisé : établissement « ' + a.facility + ' » absent de l\'annuaire backend');
+      syncFailed('appt', a.id);
+      return Promise.resolve(null);
+    }
     var note = (a.doctor || '') + (a.spec ? ' · ' + a.spec : '');
     return AFK.patientFor(a.pid).then(function (p) {
       if (!p) return null;
+      if (a.sbId) {
+        /* Déjà créé en base lors d'une tentative précédente : ne pas
+           recréer ; seul le paiement est repris s'il n'avait pas abouti. */
+        if (a.pay && !a.sbPaid) {
+          return payFor('appointment', a.sbId, a.fee, a.pay.op, { appointment_id: a.sbId }, p).then(function () {
+            a.sbPaid = true; a.sb = true; a.pendingSync = false; synced('appt', a.id);
+            return { id: a.sbId };
+          });
+        }
+        a.sb = true;
+        return { id: a.sbId };
+      }
       var args = { p_org_id: orgId, p_scheduled_at: new Date(a.when).toISOString(), p_note: note };
       var book = (a.pid && a.pid !== 'me')
         ? rpc('book_appointment_for', Object.assign({ p_patient_id: p.id }, args))
         : rpc('book_appointment', args);
       return book.then(function (appt) {
         appt = first(appt);
-        if (appt && a.pay) {
-          return payFor('appointment', appt.id, a.fee, a.pay.op, { appointment_id: appt.id }, p).then(function () { return appt; });
+        if (!appt) return null;
+        /* Marquage immédiat, AVANT le paiement : si le paiement échoue,
+           le réessai retrouvera ce rendez-vous au lieu d'en créer un
+           deuxième en base. */
+        a.sbId = appt.id;
+        a.sbPaid = !a.pay;
+        synced('appt', a.id);
+        if (a.pay) {
+          return payFor('appointment', appt.id, a.fee, a.pay.op, { appointment_id: appt.id }, p).then(function () {
+            a.sbPaid = true; a.sb = true; a.pendingSync = false; synced('appt', a.id);
+            return appt;
+          });
         }
+        a.sb = true; a.pendingSync = false; synced('appt', a.id);
         return appt;
       });
     }).then(function (appt) {
@@ -334,6 +487,37 @@
       syncFailed('appt', a && a.id);
       return null;
     });
+  };
+
+  /* Annulation d'un rendez-vous synchronisé : RPC patient
+     cancel_own_appointment (migration 007 — le serveur vérifie que le
+     rendez-vous appartient bien au compte et qu'il est encore
+     annulable). Repli : PATCH REST du statut si la fonction est
+     absente. Un échec émet syncFailed (toast + réessai via
+     cancelPending) au lieu de laisser le rendez-vous « ressusciter »
+     à la prochaine relecture d'historique. */
+  AFK.cancelAppt = function (a) {
+    if (!AFK.connected() || !a || !a.sbId) return Promise.resolve(false);
+    return rpc('cancel_own_appointment', { p_appointment_id: a.sbId }).then(function () { return true; })
+      .catch(function (e) {
+        if (e && /ne peut plus être annulé/.test(e.message || '')) return true; /* déjà annulé côté base */
+        if (e && (e.status === 404 || /PGRST202|cancel_own_appointment/.test(e.message || ''))) {
+          return rest('/appointments?id=eq.' + a.sbId, { method: 'PATCH', prefer: 'return=minimal', body: { status: 'cancelled' } }).then(function () { return true; });
+        }
+        throw e;
+      })
+      .then(function () {
+        a.cancelPending = false;
+        synced('appt', a.id);
+        return true;
+      })
+      .catch(function (e) {
+        if (window.console) console.warn('[AfrikSol] Annulation du rendez-vous non propagée au backend :', e.message);
+        a.cancelPending = true;
+        synced('appt', a.id);
+        syncFailed('appt', a.id);
+        return false;
+      });
   };
 
   /* Annuaire réel : médecins d'un établissement (RPC directory_doctors,
@@ -414,7 +598,7 @@
         payments.forEach(function (p) { if (p.order_id) payByOrder[p.order_id] = p; if (p.appointment_id) payByAppt[p.appointment_id] = p; });
         receipts.forEach(function (r) { rcByPay[r.payment_id] = r.number; });
         var D = window.DATA || { MEDICINES: [], PHARMACIES: [], SPECIALTIES: [] };
-        var OP_NAMES = { orange_money: 'Orange Money', moov_money: 'Moov Money', telecel_money: 'Telecel Money', simulated: 'Paiement simulé' };
+        var OP_NAMES = { orange_money: 'Orange Money', moov_money: 'Moov Money', telecel_money: 'Telecel Money', simulated: msg('op_simulated') };
         function medFor(item, orgId) {
           var m = (D.MEDICINES || []).find(function (x) { return x.productId && item.product_id && x.productId === item.product_id; });
           if (m) return m;
@@ -449,7 +633,7 @@
           var fee = pay ? pay.amount_fcfa : 0;
           return {
             id: 'SB-' + a.id.slice(0, 8).toUpperCase(), pid: localByPatient[a.patient_id] || 'me',
-            doctor: parts[0] || '—', spec: spec, facility: AFK.nameByOrg[a.org_id] || 'Établissement',
+            doctor: parts[0] || '—', spec: spec, facility: AFK.nameByOrg[a.org_id] || msg('facility_unknown'),
             when: new Date(a.scheduled_at).getTime(), fee: fee,
             mode: a.paid ? 'mobile' : 'onsite',
             pay: (a.paid && pay) ? { ref: rcByPay[pay.id] || ('PAY-' + pay.id.slice(0, 8).toUpperCase()), op: OP_NAMES[pay.provider] || pay.provider, paid: fee, tel: '' } : null,
@@ -522,6 +706,14 @@
         function dstr(ts) {
           try { return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; }
         }
+        /* Libellés traduits : les éléments du dossier sont des objets
+           {fr,en,ar} (lus par tx() côté app) — chaque langue est donc
+           composée ici au lieu de figer le français dans les données. */
+        function lk(lang, key) { var d = window.I18N || {}; return (d[lang] && d[lang][key]) || (d.fr && d.fr[key]) || key; }
+        function dstrL(ts, lang) {
+          try { return new Date(ts).toLocaleDateString(lang === 'en' ? 'en-GB' : lang === 'ar' ? 'ar-u-nu-latn' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; }
+        }
+        function sFor(build) { return { fr: build('fr'), en: build('en'), ar: build('ar') }; }
         function orgName(orgId) { return AFK.nameByOrg[orgId] || 'AfrikSol'; }
         var DONE = { fr: 'Terminé', en: 'Completed', ar: 'مكتمل' };
         var OKL = { fr: 'Normal', en: 'Normal', ar: 'طبيعي' };
@@ -529,8 +721,8 @@
           var pid = localByPatient[c.patient_id];
           if (!pid) return;
           push(pid, 'reports', {
-            t: { fr: c.motif || 'Consultation' },
-            s: { fr: orgName(c.org_id) + ' · ' + dstr(c.created_at) + (c.notes ? ' · ' + c.notes : '') },
+            t: sFor(function (lg) { return c.motif || lk(lg, 'rec_consultation'); }),
+            s: sFor(function (lg) { return orgName(c.org_id) + ' · ' + dstrL(c.created_at, lg) + (c.notes ? ' · ' + c.notes : ''); }),
             b: ['green', DONE], sb: true, sbId: 'cons-' + c.id
           });
         });
@@ -542,7 +734,7 @@
           (rx.prescription_items || []).forEach(function (it) {
             push(pid, 'rx', {
               t: { fr: it.drug_name },
-              s: { fr: [it.dosage, it.frequency, it.duration].filter(Boolean).join(' · ') + (rx.created_at ? ' — ' + dstr(rx.created_at) : '') },
+              s: sFor(function (lg) { return [it.dosage, it.frequency, it.duration].filter(Boolean).join(' · ') + (rx.created_at ? ' — ' + dstrL(rx.created_at, lg) : ''); }),
               b: ['green', OKL], sb: true, sbId: 'rx-' + it.id
             });
           });
@@ -552,7 +744,7 @@
           if (!pid) return;
           push(pid, 'vacc', {
             t: { fr: v.vaccine_name },
-            s: { fr: orgName(v.org_id) + ' · ' + dstr(v.administered_at) + (v.dose_label ? ' · ' + v.dose_label : '') },
+            s: sFor(function (lg) { return orgName(v.org_id) + ' · ' + dstrL(v.administered_at, lg) + (v.dose_label ? ' · ' + v.dose_label : ''); }),
             b: ['green', { fr: 'À jour', en: 'Up to date', ar: 'محدّث' }], sb: true, sbId: 'vacc-' + v.id
           });
         });
@@ -561,7 +753,7 @@
           if (!pid) return;
           push(pid, 'allergy', {
             t: { fr: a.label },
-            s: { fr: (a.severity ? 'Sévérité : ' + a.severity + ' · ' : '') + dstr(a.recorded_at) },
+            s: sFor(function (lg) { return (a.severity ? lk(lg, 'rec_severity') + a.severity + ' · ' : '') + dstrL(a.recorded_at, lg); }),
             b: [a.severity === 'severe' ? 'red' : 'orange', { fr: 'Allergie', en: 'Allergy', ar: 'حساسية' }],
             sb: true, sbId: 'alg-' + a.id
           });
@@ -571,7 +763,7 @@
           if (!pid) return;
           push(pid, 'chronic', {
             t: { fr: c.label },
-            s: { fr: c.diagnosed_at ? 'Depuis le ' + dstr(c.diagnosed_at) : '' },
+            s: sFor(function (lg) { return c.diagnosed_at ? lk(lg, 'rec_since') + dstrL(c.diagnosed_at, lg) : ''; }),
             b: ['orange', { fr: 'En cours', en: 'Ongoing', ar: 'جارٍ' }],
             sb: true, sbId: 'chr-' + c.id
           });
@@ -579,14 +771,16 @@
         (res[4] || []).forEach(function (v) {
           var pid = localByPatient[v.patient_id];
           if (!pid) return;
-          var parts = [];
-          if (v.systolic) parts.push('TA ' + v.systolic + '/' + v.diastolic);
-          if (v.pulse) parts.push('Pouls ' + v.pulse);
-          if (v.temperature_c) parts.push('T° ' + v.temperature_c + ' °C');
-          if (v.weight_kg) parts.push(v.weight_kg + ' kg');
           push(pid, 'vitals', {
-            t: { fr: 'Constantes' },
-            s: { fr: orgName(v.org_id) + ' · ' + dstr(v.measured_at) + (parts.length ? ' · ' + parts.join(' · ') : '') },
+            t: sFor(function (lg) { return lk(lg, 'rec_vitals'); }),
+            s: sFor(function (lg) {
+              var parts = [];
+              if (v.systolic) parts.push(lk(lg, 'rec_bp') + v.systolic + '/' + v.diastolic);
+              if (v.pulse) parts.push(lk(lg, 'rec_pulse') + v.pulse);
+              if (v.temperature_c) parts.push('T° ' + v.temperature_c + ' °C');
+              if (v.weight_kg) parts.push(v.weight_kg + ' kg');
+              return orgName(v.org_id) + ' · ' + dstrL(v.measured_at, lg) + (parts.length ? ' · ' + parts.join(' · ') : '');
+            }),
             b: ['green', OKL], sb: true, sbId: 'vit-' + v.id
           });
         });
@@ -698,10 +892,12 @@
     if (window.console) console.info('[AfrikSol] Catalogue chargé depuis le backend partagé :', window.AFK_BACKEND);
     if (AFK.connected()) AFK.pullHistory();
 
-    /* Si l'écran pharmacie est déjà affiché, le rafraîchir avec les données du backend */
+    /* Si l'écran pharmacie est déjà affiché, le rafraîchir avec les données
+       du backend via le hook exposé par app.js (window.AFK_REFRESH —
+       le routeur lui-même reste interne à app.js). */
     var h = (window.location && window.location.hash) || '';
-    if ((h.indexOf('#/pharmacy') === 0 || h.indexOf('#/pharmacies') === 0) && typeof window.route === 'function') {
-      try { window.route(); } catch (e) { /* l'écran se mettra à jour à la prochaine navigation */ }
+    if ((h.indexOf('#/pharmacy') === 0 || h.indexOf('#/pharmacies') === 0) && typeof window.AFK_REFRESH === 'function') {
+      try { window.AFK_REFRESH(); } catch (e) { /* l'écran se mettra à jour à la prochaine navigation */ }
     }
   }).catch(function () {
     window.AFK_BACKEND = { connected: false };
