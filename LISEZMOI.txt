@@ -5,8 +5,8 @@ Version adaptée au Burkina Faso de l'application citoyenne AfrikSol Santé
 (référence client « version 2 », initialement configurée pour le Bénin).
 
 ADAPTATIONS BURKINA FASO (faites le 17/11/2026)
-- Urgences : SAMU 112, Police 17, Sapeurs-pompiers 18 (plan de numérotation
-  ARCEP Burkina Faso) ; ligne directe affichée : urgences du CHU Yalgado
+- Urgences : SAMU 15, Police 17, Sapeurs-pompiers 18, Gendarmerie 16
+  (cahier des charges Burkina Faso v1.0, 24/11/2026) ; ligne directe affichée : urgences du CHU Yalgado
   Ouédraogo, 25 30 68 88.
 - Établissements : Ouagadougou (CHU Yalgado Ouédraogo, CHU Pédiatrique
   Charles de Gaulle, CHU de Tengandogo, CHU Bogodogo, Hôpital Saint-Camille,
@@ -17,16 +17,17 @@ ADAPTATIONS BURKINA FASO (faites le 17/11/2026)
   numéros de carte « BF … », téléphones au format burkinabè à 8 chiffres.
 - Paiements : Orange Money, Moov Money, Telecel Money (MTN MoMo et
   Celtiis Cash, propres au Bénin, ont été remplacés).
-- Assurance : AMU — Assurance Maladie Universelle (remplace l'ARCH béninois).
+- Assurance : RAMU — Régime d'assurance maladie universelle, géré par la CNAMU,
+  prise en charge de 70 % (remplace l'AMU de la première adaptation).
 - Langues : français, anglais, arabe (de droite à gauche), mooré et dioula.
   Les dictionnaires mooré et dioula sont à compléter et à faire relire par
   des locuteurs natifs dans i18n.js ; en attendant, les textes s'affichent
   en français (mécanisme de repli intégré).
 
 CE QUI FONCTIONNE
-- Accueil : bouton Urgences (appel direct du 112), dossier médical,
+- Accueil : bouton Urgences (appel direct du 15), dossier médical,
   pharmacie en ligne, mes rendez-vous, ma carte santé.
-- Urgences : appel direct SAMU 112, Pompiers 18, Police 17 ; hôpitaux les
+- Urgences : appel direct SAMU 15, Pompiers 18, Police 17, Gendarmerie 16 ; hôpitaux les
   plus proches avec bouton « Appeler » et itinéraire.
 - Rendez-vous : 5 étapes (type d'établissement, spécialité, établissement,
   médecin et créneau, paiement), pour soi ou pour un enfant.
@@ -38,7 +39,8 @@ CE QUI FONCTIONNE
 - Famille (barre du bas) : le parent voit ses enfants et agit pour eux.
 - Ma carte santé : carte santé du Burkina Faso (recto/verso), carte enfant
   avec mention « Mineur ».
-- Assurance : AMU + complémentaire santé (25 $/an, en 1, 3 ou 4 fois) et
+- Assurance : RAMU seul — la complémentaire santé AfrikSol et les offres
+  partenaires sont RETIRÉES du pilote par le cahier des charges BF v1.0 et
   rattachement d'une assurance existante.
 - Hors ligne : après une première visite, l'application s'ouvre même sans
   internet ; les appels d'urgence passent par le réseau téléphonique.

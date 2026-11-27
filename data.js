@@ -1,5 +1,5 @@
 /* AfrikSol Santé — données de démonstration (Burkina Faso)
-   Numéros d'urgence : SAMU 112, Police 17, Sapeurs-pompiers 18 (plan de numérotation ARCEP Burkina Faso).
+   Numéros d'urgence : SAMU 15, Police 17, Sapeurs-pompiers 18, Gendarmerie 16 (cahier des charges Burkina Faso v1.0).
    Téléphones des hôpitaux et cliniques : numéros de démonstration (annuaires publics de Ouagadougou),
    à vérifier avant toute démonstration publique.
    Patients, médecins, dossiers, stocks, prix et assurance : données FICTIVES pour la démonstration. */
@@ -104,7 +104,7 @@ window.DATA = (function(){
       ],
       bills:[
         {t:{fr:'Consultation — CHU Yalgado',en:'Consultation — CHU Yalgado',ar:'استشارة — CHU Yalgado'}, s:{fr:'12 oct. 2026 · 2 000 FCFA · Orange Money',en:'12 Oct 2026 · 2,000 FCFA · Orange Money',ar:'12 أكتوبر 2026 · 2000 فرنك · Orange Money'}, b:['green',PAID]},
-        {t:{fr:'Analyses — CHU Yalgado',en:'Lab tests — CHU Yalgado',ar:'تحاليل — CHU Yalgado'}, s:{fr:'12 oct. 2026 · 6 500 FCFA · Pris en charge AMU',en:'12 Oct 2026 · 6,500 FCFA · Covered by AMU',ar:'12 أكتوبر 2026 · 6500 فرنك · بتغطية AMU'}, b:['blue',{fr:'AMU',en:'AMU',ar:'AMU'}]}
+        {t:{fr:'Analyses — CHU Yalgado',en:'Lab tests — CHU Yalgado',ar:'تحاليل — CHU Yalgado'}, s:{fr:'12 oct. 2026 · 6 500 FCFA · Pris en charge RAMU',en:'12 Oct 2026 · 6,500 FCFA · Covered by RAMU',ar:'12 أكتوبر 2026 · 6500 فرنك · بتغطية RAMU'}, b:['blue',{fr:'RAMU',en:'RAMU',ar:'RAMU'}]}
       ],
       orders:[
         {t:{fr:'Bon d\'examen — Bilan lipidique',en:'Test order — Lipid panel',ar:'طلب فحص — دهون الدم'}, s:{fr:'Prescrit par Dr Seydou Ouédraogo · valable jusqu\'au 30 nov. 2026',en:'Prescribed by Dr Seydou Ouédraogo · valid until 30 Nov 2026',ar:'بوصفة د. سيدو ويدراوغو · صالح حتى 30 نوفمبر 2026'}, b:['orange',{fr:'À faire',en:'Pending',ar:'معلّق'}]}

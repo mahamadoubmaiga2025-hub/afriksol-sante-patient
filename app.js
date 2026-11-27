@@ -240,7 +240,7 @@ function vHome(){
   const near=hospByDistance()[0];
   screen(brandbar()+'<div class="scroll">'+actingBanner()+
     '<div class="hello"><small>'+t(greetKey())+'</small><h2>'+esc(fullName(me))+'</h2><p>'+t('how_help')+'</p></div>'+
-    '<div class="sos" role="button" data-go="#/sos"><span class="ic">'+I('siren','lg')+'</span><span class="sx"><b>'+t('emergencies')+'</b><small>'+t('sos_sub')+'</small></span><a class="call" href="tel:112" onclick="event.stopPropagation()">'+I('phone','sm')+'112</a></div>'+
+    '<div class="sos" role="button" data-go="#/sos"><span class="ic">'+I('siren','lg')+'</span><span class="sx"><b>'+t('emergencies')+'</b><small>'+t('sos_sub')+'</small></span><a class="call" href="tel:15" onclick="event.stopPropagation()">'+I('phone','sm')+'15</a></div>'+
     '<div class="offline"><i></i>'+t('offline_ok')+'</div>'+
     ((window.AFK && !AFK.connected()) ? '<button class="trkcard" data-go="#/account"><span class="ic">'+I('shield')+'</span><span class="tx"><small>'+t('account')+'</small><b>'+t('account_off')+'</b></span>'+I('chev','sm chev')+'</button>' : '')+
     activeOrders().slice(0,2).map(o=>'<button class="trkcard" data-go="#/order/'+o.id+'"><span class="ic">'+I(o.mode==='delivery'?'pin':'store')+'</span><span class="tx"><small>'+t('trk_follow')+' · '+o.id+'</small><b>'+orderStatusLine(o)+'</b></span>'+I('chev','sm chev')+'</button>').join('')+
@@ -271,8 +271,8 @@ function vSos(){
     else locHtml = '<div class="loc off"><div class="row"><span class="ic">'+I('pin')+'</span><span class="tx"><b>'+t('loc_off')+'</b><small>'+t('loc_off_s')+'</small></span></div><button class="btn sm" style="width:100%;margin-top:12px" id="enable">'+I('pin','sm')+t('enable_loc')+'</button></div>';
     const contact = p.child ? [t('em_contact_child'), D.GUARDIAN.name+' · '+D.GUARDIAN.tel] : [t('em_contact'), p.contact.name+' ('+t(p.contact.rel)+')'];
     screen(topbar(t('emergencies'), t('sos_top'))+'<div class="scroll">'+
-      '<div class="samu"><span class="tag">SAMU BURKINA FASO</span><div class="n">112</div><b>'+t('samu_title')+'</b><small>'+t('samu_sub')+'</small><a class="btn" href="tel:112">'+I('phone')+t('call_112')+'</a></div>'+
-      '<div class="nums"><a href="tel:18"><b>118</b><small>'+t('firemen')+'</small></a><a href="tel:17"><b>117</b><small>'+t('police')+'</small></a><a href="tel:'+D.SAMU_DIRECT+'"><b style="font-size:13px;line-height:1.85;white-space:nowrap">'+ISO('25 30 68 88')+'</b><small>'+t('samu_direct')+'</small></a></div>'+
+      '<div class="samu"><span class="tag">SAMU BURKINA FASO</span><div class="n">15</div><b>'+t('samu_title')+'</b><small>'+t('samu_sub')+'</small><a class="btn" href="tel:15">'+I('phone')+t('call_112')+'</a></div>'+
+      '<div class="nums"><a href="tel:18"><b>18</b><small>'+t('firemen')+'</small></a><a href="tel:17"><b>17</b><small>'+t('police')+'</small></a><a href="tel:16"><b>16</b><small>'+t('gendarmerie')+'</small></a><a href="tel:'+D.SAMU_DIRECT+'"><b style="font-size:13px;line-height:1.85;white-space:nowrap">'+ISO('25 30 68 88')+'</b><small>'+t('samu_direct')+'</small></a></div>'+
       locHtml+
       '<div class="sec">'+t('nearest_hosp')+'<span style="font-size:12px;color:var(--mute);font-weight:500">'+(S.posState==='on'?t('from_you'):t('from_cotonou'))+'</span></div>'+
       list.map(h=>'<div class="hosp"><div class="top"><span class="row" style="width:auto;flex:1"><span class="ic" style="width:40px;height:40px">'+I(h.type==='pub'?'hospital':'building','sm')+'</span><span class="tx"><b>'+esc(h.name)+'</b><small>'+esc(h.area)+' · '+t('open_24')+'</small></span></span><span class="km">≈ '+fmtKm(h.d)+'</span></div>'+
@@ -739,7 +739,7 @@ function healthCardBack(p){
   return '<div class="ncw"><div class="nc">'+ncWaves()+'<div class="nc-wm">S P E C I M E N</div>'+
     '<div class="nc-vhead"><div class="nc-vttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('FRATERNITÉ · JUSTICE · TRAVAIL','FRATERNITY · JUSTICE · WORK')+'</i></div><img class="nc-logo nc-mark" src="assets/logo-mark.png" alt=""></div>'+
     '<div class="nc-rule">'+rule+'</div>'+
-    '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 112','Fire 18 · Ambulance 112')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
+    '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 15 · Police 17','Fire 18 · SAMU 15 · Police 17')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
     '<div class="nc-bar"><div class="nc-bars">'+bars+'</div><span>'+p.num+'</span></div>'+
     '<div class="nc-foot"><span>'+CL('PROPRIÉTÉ DE L’ÉTAT — SPÉCIMEN, SANS VALEUR LÉGALE','PROPERTY OF THE STATE — SPECIMEN, NO LEGAL VALUE')+'</span><span>'+CL('« VOTRE SANTÉ NOUS TIENT À CŒUR »','“YOUR HEALTH MATTERS TO US”')+'</span></div></div></div>';
 }
@@ -764,32 +764,17 @@ function vCard(){
 /* ---------- INSURANCE ---------- */
 function insSummary(p){
   const c=S.ins.comp[p.id];
-  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+'</small></span>'+badge('green',t('active'))+'</div>'+
-    '<div class="row" style="margin-top:12px"><span class="ic" style="background:var(--soft);color:var(--ink-2)">'+I('heart')+'</span><span class="tx"><b>'+t('comp_title')+'</b><small>'+(c?t('paid_x',{a:c.paid,b:c.plan}):t('comp_price',{p:money(D.INSURANCE.annual)}))+'</small></span>'+(c?badge('green',t('active')):I('chev','sm chev'))+'</div></button>';
+  return '<button class="card insrow" data-go="#/insurance"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+'</small></span>'+badge('green',t('active'))+'</div>'+'</button>';
 }
 function vInsurance(){
   const p=cur(), IN=D.INSURANCE; let plan=3;
   const draw=()=>{
     const c=S.ins.comp[p.id], link=S.ins.link;
-    let comp;
-    if(c){
-      const inst=IN.plans[c.plan], due=c.paid<c.plan ? new Date(c.start+c.paid*(365/c.plan)*864e5) : null;
-      comp='<div class="card ins on"><div class="h">'+I('heart','sm')+'<b>'+t('comp_title')+'</b>'+badge('green',t('comp_active'))+'</div>'+
-        '<div class="kv"><span>'+t('patient')+'</span><b>'+esc(fullName(p))+'</b></div><div class="kv"><span>'+t('pay_plan')+'</span><b>'+t('per_inst',{n:c.plan,a:money(inst[0])})+'</b></div>'+
-        '<div class="kv"><span>'+t('status')+'</span><b>'+t('paid_x',{a:c.paid,b:c.plan})+'</b></div><div class="pbar"><i style="width:'+(c.paid/c.plan*100)+'%"></i></div>'+
-        (due?'<div class="due">'+I('calendar','sm')+t('next_due',{d:fmtDate(due,{day:'numeric',month:'long',year:'numeric'})})+'</div><button class="btn blue" id="pn2" style="margin-top:10px">'+t('pay_next',{a:money(inst[c.paid])})+'</button>':'<div class="alert green">'+I('check','sm')+'<span>'+t('fully_paid')+'</span></div>')+'</div>';
-    } else {
-      comp='<div class="card ins"><div class="h">'+I('heart','sm')+'<b>'+t('comp_title')+'</b></div><div class="price">'+t('comp_price',{p:money(IN.annual)})+'</div><p>'+t('comp_desc')+'</p>'+
-        '<ul class="ben">'+['comp_b1','comp_b2','comp_b3','comp_b4'].map(k=>'<li>'+I('check','sm')+t(k)+'</li>').join('')+'</ul>'+
-        '<div class="f"><label>'+t('pay_plan')+'</label><div class="chips">'+[1,3,4].map(n=>'<button class="chip '+(plan===n?'on':'')+'" data-pl="'+n+'">'+t('plan_'+n)+(n>1?' · '+t('per_inst',{n,a:money(IN.plans[n][0])}):'')+'</button>').join('')+'</div></div>'+
-        '<button class="btn" id="sub">'+t('subscribe',{name:nm(p.first)})+' · '+money(IN.plans[plan][0])+'</button></div>';
-    }
-    const disc='<div class="card"><div class="h2">'+t('partner_disc')+badge('blue',t('disc_only'))+'</div>'+IN.discounts.map(([k,v])=>'<div class="kv"><span>'+t(k)+'</span><b style="color:var(--green)">'+ISO(v)+'</b></div>').join('')+'</div>';
     const linkHtml = p.id==='me' ? (link ? '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('linked_ins')+' · '+esc(link.name)+'</b><small>'+t('ins_t_'+link.type)+' · '+ISO(esc(link.no))+'</small></span>'+badge('orange',t('pending'))+'</div></div>'
       : '<button class="btn ghost" id="lk">'+I('shield','sm')+t('link_ins')+'</button>') : '';
     screen(topbar(t('ins_title'), t('ins_sub'))+'<div class="scroll">'+actingBanner()+
       '<div class="card"><div class="row"><span class="ic">'+I('shield')+'</span><span class="tx"><b>'+t('ins_arch')+'</b><small>'+(p.child?t('ins_arch_child',{name:'Aïcha Ouédraogo'}):t('ins_arch_s'))+' · '+ISO(p.num)+'</small></span>'+badge('green',t('active'))+'</div></div>'+
-      '<div style="height:12px"></div>'+comp+'<div style="height:12px"></div>'+disc+'<div style="height:12px"></div>'+linkHtml+
+      linkHtml+
       '<p class="demo">'+t('ins_demo')+'</p></div>', S.who==='me'?'profile':'family');
     bindWho();
     $app.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{ plan=+b.dataset.pl; draw(); });
@@ -804,7 +789,7 @@ function linkSheet(after){
   sheet('',s=>{
     const draw=()=>{ s.querySelector('.sheet').innerHTML='<div class="grab"></div><h3>'+t('link_ins')+'</h3><p>'+t('link_ins_p')+'</p>'+
       '<div class="f"><label>'+t('ins_type')+'</label><div class="chips">'+['arch','emp','mut','priv'].map(k=>'<button class="chip '+(type===k?'on':'')+'" data-ty="'+k+'">'+t('ins_t_'+k)+'</button>').join('')+'</div></div>'+
-      '<div class="f"><label>'+t('insurer_name')+'</label><input id="inn" value="'+(type==='arch'?'AMU':'')+'"></div><div class="f"><label>'+t('ins_no')+'</label><input id="ino" dir="ltr"></div>'+
+      '<div class="f"><label>'+t('insurer_name')+'</label><input id="inn" value="'+(type==='arch'?'RAMU':'')+'"></div><div class="f"><label>'+t('ins_no')+'</label><input id="ino" dir="ltr"></div>'+
       '<button class="btn" id="ls">'+t('link_send')+'</button>';
       s.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ type=b.dataset.ty; draw(); });
       s.querySelector('#ls').onclick=()=>{ const n=s.querySelector('#inn').value.trim(), no=s.querySelector('#ino').value.trim(); let ok=true;
