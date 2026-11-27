@@ -54,3 +54,22 @@ CE QUI FONCTIONNE
   textes : i18n.js.
 - L'ancien site patient AfrikSol reste en place : cette version est
   déployée sur sa propre adresse.
+
+VAGUE 1 — CORRECTIFS DU CAHIER BF (faits le 27/11/2026, assets v14 / SW v8)
+- Carte santé : « République du Burkina Faso », devise « Unité · Progrès ·
+  Justice », drapeau du Burkina Faso (rouge/vert, étoile jaune) ; filigrane
+  SPECIMEN retiré ; verso : « La Patrie ou la Mort, nous Vaincrons ».
+- QR codes réels et scannables (bibliothèque qrcode-generator 1.4.4, MIT,
+  fichier local qrcode.min.js) : la carte encode « AFKS: » + numéro de
+  carte sans espaces ; le reçu de paiement encode son numéro de reçu.
+  Repli silencieux sur l'ancien motif si la génération échoue.
+- Rendez-vous : si le compte est connecté et l'établissement choisi figure
+  dans l'annuaire backend, médecins réels (directory_doctors) et créneaux
+  libres réels (get_free_slots) sur 3 jours ; sinon, flux de démonstration
+  inchangé.
+- Étape 5 : bouton « À payer à la caisse » en plus du mobile money.
+- Paiement : validation du téléphone au format burkinabè (8 chiffres
+  commençant par 5, 6 ou 7, préfixe +226 accepté).
+- Langues : le sélecteur ne propose plus que français, anglais et arabe
+  (les dictionnaires mooré/dioula étaient vides).
+- Après connexion : écran « Bienvenue, Prénom ! » (~3 s, cahier P8).

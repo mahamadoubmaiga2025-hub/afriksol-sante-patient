@@ -200,8 +200,8 @@ function vSplash(){
 }
 
 function vLang(fromProfile){
-  const langs = [['fr','Français'],['en','English'],['ar','العربية'],['fon','Mooré'],['dendi','Dioula']];
-  let sel = S.lang || 'fr';
+  const langs = [['fr','Français'],['en','English'],['ar','العربية']];
+  let sel = ['fr','en','ar'].includes(S.lang) ? S.lang : 'fr';
   const draw = ()=>{
     screen((fromProfile?topbar((window.I18N[sel].language||window.I18N.fr.language),''):'')+'<div class="scroll"><div class="lang-head">'+(fromProfile?'':'<div class="lang-logo"><img src="assets/logo-mark.png" alt=""><b>AfrikSol <span>Santé</span></b></div>')+'<h2>'+(window.I18N[sel].choose_lang||window.I18N.fr.choose_lang)+'</h2><p>'+(window.I18N[sel].choose_lang_sub||window.I18N.fr.choose_lang_sub)+'</p></div>'+
       langs.map(([k,n])=>'<button class="opt '+(sel===k?'on':'')+'" data-l="'+k+'"><span><b>'+n+'</b></span><span class="ck">'+I('check')+'</span></button>').join('')+
@@ -409,20 +409,48 @@ function slotsFor(docId){
 function bStep4(){
   if(!B.type||!B.spec||!B.fac) return go('#/book');
   const fac=D.FACILITIES[B.type].find(f=>f.id===B.fac); if(!fac) return go('#/book');
-  const fee=D.FACILITY_TYPES.find(f=>f.id===B.type).fee, docs=D.doctorsFor(B.fac,B.spec);
+  const fee=D.FACILITY_TYPES.find(f=>f.id===B.type).fee;
   let keepScroll=0;
-  const draw=()=>{
+  const draw=(docs, slotsOf)=>{
     screen(bookTop(4,t('doctor'))+'<div style="font-size:13px;color:var(--mute);margin-bottom:10px">'+esc(fac.name)+' · '+t('spec_'+B.spec)+'</div>'+
-      docs.map(d=>{ const sl=slotsFor(d.id); return '<div class="doc"><div class="h"><span class="av">'+d.ini+'</span><span><b>'+d.name+'</b><small>'+t('spec_'+B.spec)+'</small><div class="star">★ '+d.rating+' <span style="color:var(--mute);font-weight:500">('+d.reviews+')</span></div></span></div>'+
-        '<div class="info">'+esc(fac.name)+' · '+t('years_exp',{n:d.exp})+' · '+fmtKm(fac.km)+'</div><div class="slots">'+
+      docs.map(d=>{ const sl=slotsOf(d); return '<div class="doc"><div class="h"><span class="av">'+d.ini+'</span><span><b>'+d.name+'</b><small>'+esc(d.specLabel||t('spec_'+B.spec))+'</small>'+(d.rating?'<div class="star">★ '+d.rating+' <span style="color:var(--mute);font-weight:500">('+d.reviews+')</span></div>':'')+'</span></div>'+
+        '<div class="info">'+esc(fac.name)+(d.exp?' · '+t('years_exp',{n:d.exp}):'')+' · '+fmtKm(fac.km)+'</div><div class="slots">'+
         sl.map(s=>'<button class="slot '+(B.doc===d.id&&B.when===s?'on':'')+'" data-d="'+d.id+'" data-s="'+s+'">'+fmtDate(s,{weekday:'short',day:'numeric'})+' · '+ISO(fmtTime(s))+'</button>').join('')+
         '</div><button class="btn" data-pick="'+d.id+'" '+(B.doc===d.id&&B.when?'':'disabled')+'>'+t('choose_doc')+' · '+money(fee)+'</button></div>'; }).join('')+'</div>','appt');
     const sc=$app.querySelector('.scroll'); sc.scrollTop=keepScroll;
-    $app.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ keepScroll=sc.scrollTop; B.doc=b.dataset.d; B.when=+b.dataset.s; draw(); });
+    $app.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ keepScroll=sc.scrollTop; B.doc=b.dataset.d; B.when=+b.dataset.s; draw(docs, slotsOf); });
     $app.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{ const d=docs.find(x=>x.id===b.dataset.pick); B.docName=d.name; B.fee=fee; B.facName=fac.name; go('#/book/5'); });
     bindWho(()=>go('#/book'));
   };
-  draw();
+  const drawDemo=()=>draw(D.doctorsFor(B.fac,B.spec), d=>slotsFor(d.id));
+  /* Mode réel gardé : compte connecté + établissement apparié à l'annuaire
+     backend (par nom) + médecins renvoyés par directory_doctors → médecins
+     réels et créneaux libres get_free_slots (3 prochains jours). Au moindre
+     écart ou échec, retour exact au flux de démonstration ci-dessus. */
+  const orgId=(window.AFK && AFK.connected() && AFK.patient() && AFK.orgByName)
+    ? AFK.orgByName[String(fac.name||'').split('—')[0].trim().toLowerCase()] : null;
+  if(!orgId || !AFK.directoryDoctors || !AFK.freeSlots){ drawDemo(); return; }
+  screen(bookTop(4,t('doctor'))+'<div class="card empty" style="margin-top:10px"><div class="spin" style="margin:0 auto"></div></div></div>','appt');
+  const isoDay=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  AFK.patientFor(B.pid||'me').then(pat=>{
+    if(!pat || !pat.id) throw new Error('no-patient');
+    return AFK.directoryDoctors(orgId).then(realDocs=>{
+      if(!realDocs.length) throw new Error('no-doctors');
+      const base=new Date(); base.setHours(0,0,0,0);
+      const days=[1,2,3].map(x=>new Date(base.getTime()+x*864e5));
+      return Promise.all(realDocs.map(rd=>Promise.all(days.map(d=>AFK.freeSlots(pat.id, rd.doctor_id, isoDay(d))))
+        .then(per=>{
+          const slots=per.flat().filter(s=>s && s.is_free).map(s=>Date.parse(s.slot_at)).filter(x=>x>Date.now()).sort((a,b)=>a-b);
+          const nm=String(rd.full_name||'').trim();
+          const parts=nm.replace(/^Dr\.?\s+/i,'').split(/\s+/);
+          return { doc:{id:rd.doctor_id, name:/^Dr/i.test(nm)?nm:'Dr '+nm, ini:((parts[0]||'?')[0]+(parts.length>1?parts[parts.length-1][0]:'')).toUpperCase(), specLabel:rd.specialty||null}, slots };
+        }))).then(list=>{
+          if(location.hash.indexOf('#/book/4')!==0) return;
+          const byId={}; list.forEach(x=>{ byId[x.doc.id]=x.slots; });
+          draw(list.map(x=>x.doc), d=>byId[d.id]||[]);
+        });
+    });
+  }).catch(()=>{ if(location.hash.indexOf('#/book/4')===0) drawDemo(); });
 }
 function bStep5(){
   if(!B.docName) return go('#/book');
@@ -432,21 +460,23 @@ function bStep5(){
     '<div class="kv"><span>'+t('doctor')+'</span><b>'+B.docName+'</b></div><div class="kv"><span>'+t('specialty')+'</span><b>'+t('spec_'+B.spec)+'</b></div><div class="kv"><span>'+t('facility')+'</span><b>'+esc(B.facName)+'</b></div><div class="kv"><span>'+t('date_time')+'</span><b>'+fmtDT(B.when)+'</b></div></div>'+
     '<div class="card" style="margin-top:12px"><div class="kv"><span>'+t('consult_fee')+'</span><b>'+money(B.fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(B.fee)+'</b></div></div>'+
     '<div class="alert green">'+I('shield','sm')+'<span>'+t('arch_note')+'</span></div>'+
-    '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(B.fee)+')</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
+    '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(B.fee)+')</button><div style="height:10px"></div><button class="btn ghost" id="pc">'+t('pay_at_desk')+'</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
   document.getElementById('pm').onclick=()=>payFlow(B.fee, ref=>finishBooking('mobile',ref));
+  document.getElementById('pc').onclick=()=>finishBooking('onsite', null);
 }
 function payFlow(amount, done){
   let op='orange';
   const fee=Math.round(amount*0.0125);
   const draw=s=>{
     s.querySelector('.sheet').innerHTML='<div class="grab"></div><h3>'+t('mobile_pay')+'</h3><p>'+t('choose_op')+'</p><div class="ops">'+D.OPERATORS.map(o=>'<button class="op '+(op===o.id?'on':'')+'" data-op="'+o.id+'"><i style="background:'+o.c+';color:'+o.fg+'">'+o.ini+'</i>'+o.name+'</button>').join('')+'</div>'+
-      '<div class="f"><label>'+t('phone_no')+'</label><input id="pn" inputmode="tel" dir="ltr" placeholder="01 XX XX XX XX" value="01 97 52 00 02"><div class="hint">'+t('phone_hint')+'</div></div>'+
+      '<div class="f"><label>'+t('phone_no')+'</label><input id="pn" inputmode="tel" dir="ltr" placeholder="70 XX XX XX XX" value="70 00 00 00"><div class="hint">'+t('phone_hint')+'</div></div>'+
       '<div class="kv"><span>'+t('amount')+'</span><b>'+money(amount)+'</b></div><div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(amount+fee)+'</b></div>'+
       '<div style="height:14px"></div><button class="btn blue" id="pv">'+t('pay')+' '+money(amount+fee)+'</button>';
     s.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{ const v=s.querySelector('#pn').value; op=b.dataset.op; draw(s); s.querySelector('#pn').value=v; });
     s.querySelector('#pv').onclick=()=>{
-      const v=s.querySelector('#pn').value.replace(/\D/g,'');
-      if(!/^01\d{8}$/.test(v)){ s.querySelector('.f').classList.add('err'); toast(t('phone_invalid')); return; }
+      let v=s.querySelector('#pn').value.replace(/\D/g,'');
+      if(v.length===11 && v.indexOf('226')===0) v=v.slice(3);
+      if(!/^[567]\d{7}$/.test(v)){ s.querySelector('.f').classList.add('err'); toast(t('phone_invalid')); return; }
       const opName=D.OPERATORS.find(o=>o.id===op).name;
       s.querySelector('.sheet').innerHTML='<div class="grab"></div><div style="text-align:center;padding:20px 0"><div class="spin"></div><h3 style="margin-top:14px">'+t('confirm_on_phone')+'</h3><p>'+t('confirm_on_phone_s',{op:opName})+'</p></div>';
       setTimeout(()=>{ closeSheet(); done({op:opName, paid:amount+fee, ref:'PAY-'+String(Date.now()).slice(-8), tel:v}); }, 2200);
@@ -568,7 +598,7 @@ function vPayment(id){
     '<div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(p.fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('amount_paid')+'</span><b>'+money(p.amount+p.fee)+'</b></div>'+
     '<div class="rsec">'+t('payment')+'</div><div class="kv"><span>'+t('method')+'</span><b>'+esc(p.op)+(maskTel(p.tel)?' · '+ISO(maskTel(p.tel)):'')+'</b></div><div class="kv"><span>'+t('reference')+'</span><b>'+p.id+'</b></div>'+
     '<div class="kv"><span>'+t('patient')+'</span><b>'+esc(fullName(pr))+'</b></div><div class="kv"><span>'+t('health_no')+'</span><b>'+ISO(pr.num)+'</b></div>'+(p.pid!=='me'?'<div class="kv"><span>'+t('paid_by')+'</span><b>'+esc(fullName(me))+'</b></div>':'')+
-    '<div class="rq">'+qrSvg(p.id)+'<small>'+t('receipt_qr')+'</small></div></div>'+
+    '<div class="rq">'+qrCode(p.id, p.id)+'<small>'+t('receipt_qr')+'</small></div></div>'+
     '<div class="noprint" style="margin-top:14px"><button class="btn" id="dl">'+I('file','sm')+t('download_receipt')+'</button><div style="height:10px"></div><button class="btn ghost" id="sh">'+I('share','sm')+t('share')+'</button></div></div>','profile');
   document.getElementById('dl').onclick=()=>window.print();
   document.getElementById('sh').onclick=()=>{
@@ -709,8 +739,22 @@ function qrSvg(seed){
   finder(0,0); finder(14,0); finder(0,14);
   return '<svg viewBox="-1 -1 23 23" class="qrc"><rect x="-1" y="-1" width="23" height="23" fill="#fff"/>'+r+'</svg>';
 }
+/* Vrai QR scannable (bibliothèque qrcode-generator 1.4.4, MIT) : encode le
+   texte donné, rendu SVG construit module par module. En cas d'échec ou si
+   la bibliothèque est absente, repli silencieux sur l'ancien motif qrSvg. */
+function qrCode(text, seed){
+  try{
+    if(typeof qrcode==='function'){
+      const qr=qrcode(0,'M'); qr.addData(String(text)); qr.make();
+      const n=qr.getModuleCount(); let d='';
+      for(let r2=0;r2<n;r2++) for(let c2=0;c2<n;c2++) if(qr.isDark(r2,c2)) d+='M'+c2+' '+r2+'h1v1h-1z';
+      return '<svg viewBox="-2 -2 '+(n+4)+' '+(n+4)+'" class="qrc"><rect x="-2" y="-2" width="'+(n+4)+'" height="'+(n+4)+'" fill="#fff"/><path d="'+d+'"/></svg>';
+    }
+  }catch(e){}
+  return qrSvg(seed||String(text));
+}
 /* national health card — Burkina Faso design (548 x 345, scaled to fit) */
-const BJ_FLAG='<svg viewBox="0 0 3 2" preserveAspectRatio="none"><rect width="1.2" height="2" fill="#008751"/><rect x="1.2" width="1.8" height="1" fill="#fcd116"/><rect x="1.2" y="1" width="1.8" height="1" fill="#e8112d"/></svg>';
+const BF_FLAG='<svg viewBox="0 0 3 2" preserveAspectRatio="none"><rect width="3" height="1" fill="#EF2B2D"/><rect y="1" width="3" height="1" fill="#009A44"/><polygon fill="#FCD116" points="1.5,0.55 1.606,0.854 1.928,0.861 1.671,1.056 1.765,1.364 1.5,1.18 1.235,1.364 1.329,1.056 1.072,0.861 1.394,0.854"/></svg>';
 const SILH='<svg viewBox="0 0 100 150" preserveAspectRatio="xMidYMid slice"><rect width="100" height="150" fill="#dfe5e8"/><circle cx="50" cy="58" r="22" fill="#a9b6be"/><path d="M10 150C12 105 30 90 50 90s38 15 40 60z" fill="#a9b6be"/></svg>';
 function ncWaves(){
   const cols=['#0f3550','#008751','#f4ecdc','#fcd116','#e8112d']; let o='';
@@ -722,26 +766,26 @@ function CL(fr,en){ return cardLang()==='en'?en:fr; }
 function ncDate(d){ return d.split('/').join(' / '); }
 function healthCard(p){
   const photo = p.id==='me' ? '<img src="assets/specimen-adult.png" alt="">' : p.photo ? '<img src="'+p.photo+'" alt="">' : SILH;
-  return '<div class="ncw"><div class="nc">'+ncWaves()+'<div class="nc-wm">S P E C I M E N</div>'+
-    '<div class="nc-head"><div class="nc-ttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('RÉPUBLIQUE DU BÉNIN','REPUBLIC OF BENIN')+'</i></div><div class="nc-min">'+CL('MINISTÈRE DE LA SANTÉ','MINISTRY OF HEALTH')+'<br>'+CL('FRATERNITÉ · JUSTICE · TRAVAIL','FRATERNITY · JUSTICE · WORK')+'</div><div class="nc-flag">'+BJ_FLAG+'</div></div>'+
+  return '<div class="ncw"><div class="nc">'+ncWaves()+
+    '<div class="nc-head"><div class="nc-ttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('RÉPUBLIQUE DU BURKINA FASO','REPUBLIC OF BURKINA FASO')+'</i></div><div class="nc-min">'+CL('MINISTÈRE DE LA SANTÉ','MINISTRY OF HEALTH')+'<br>'+CL('UNITÉ · PROGRÈS · JUSTICE','UNITY · PROGRESS · JUSTICE')+'</div><div class="nc-flag">'+BF_FLAG+'</div></div>'+
     '<div class="nc-photo">'+photo+'</div>'+
     '<div class="nc-fields"><div><s>'+CL('NOM','SURNAME')+'</s><b>'+esc(p.last.toUpperCase())+'</b></div><div><s>'+CL('PRÉNOM','GIVEN NAME')+'</s><b>'+esc(p.first)+'</b></div>'+
     '<div><s>'+CL('NATIONALITÉ','NATIONALITY')+'</s><b>'+CL('Burkinabè','Burkinabè')+'</b></div><div><s>'+CL('LIEU DE NAISSANCE','PLACE OF BIRTH')+'</s><b>'+esc(p.city)+'</b></div>'+
     '<div class="nc-wide"><s>'+CL('AUTORITÉ DE DÉLIVRANCE','ISSUING AUTHORITY')+'</s><em>'+CL('Ministère de la Santé','Ministry of Health')+'</em></div>'+
     '<div><s>'+CL('DATE DE DÉLIVRANCE','DATE OF ISSUE')+'</s><u>'+ncDate(p.issued)+'</u></div><div><s>'+CL('VALABLE JUSQU’AU','EXPIRY DATE')+'</s><u>'+ncDate(p.expires)+'</u></div></div>'+
-    '<div class="nc-hr"></div><div class="nc-qr">'+qrSvg(p.num)+'</div>'+(p.child?'<div class="nc-minor">'+CL('MINEUR','MINOR')+'</div>':'')+
+    '<div class="nc-hr"></div><div class="nc-qr">'+qrCode('AFKS:'+String(p.num).replace(/\s+/g,''), p.num)+'</div>'+(p.child?'<div class="nc-minor">'+CL('MINEUR','MINOR')+'</div>':'')+
     '<div class="nc-num"><s>'+CL('NUMÉRO DE CARTE','CARD NUMBER')+'</s>'+p.num+'</div></div></div>';
 }
 function healthCardBack(p){
   const c = p.child ? [CL('RESPONSABLE LÉGAL','LEGAL GUARDIAN'), D.GUARDIAN.name+' — '+D.GUARDIAN.tel] : [CL('CONTACT D’URGENCE','EMERGENCY CONTACT'), p.contact.name+' — '+p.contact.tel];
   let bars=''; let h=7; for(const ch of p.num) h=(h*31+ch.charCodeAt(0))>>>0; for(let i=0;i<70;i++){ h^=h<<13;h>>>=0;h^=h>>>17;h^=h<<5;h>>>=0; bars+='<i style="width:'+(1+(h%3))+'px;margin-right:'+(1+((h>>3)%2))+'px"></i>'; }
   const rule=['#0f3550','#008751','#fcd116','#e8112d','#1e8ea3'].map(c=>'<i style="background:'+c+'"></i>').join('');
-  return '<div class="ncw"><div class="nc">'+ncWaves()+'<div class="nc-wm">S P E C I M E N</div>'+
-    '<div class="nc-vhead"><div class="nc-vttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('FRATERNITÉ · JUSTICE · TRAVAIL','FRATERNITY · JUSTICE · WORK')+'</i></div><img class="nc-logo nc-mark" src="assets/logo-mark.png" alt=""></div>'+
+  return '<div class="ncw"><div class="nc">'+ncWaves()+
+    '<div class="nc-vhead"><div class="nc-vttl"><b>'+CL('CARTE NATIONALE DE SANTÉ','NATIONAL HEALTH CARD')+'</b><i>'+CL('UNITÉ · PROGRÈS · JUSTICE','UNITY · PROGRESS · JUSTICE')+'</i></div><img class="nc-logo nc-mark" src="assets/logo-mark.png" alt=""></div>'+
     '<div class="nc-rule">'+rule+'</div>'+
     '<div class="nc-vrow"><div><s>'+c[0]+'</s><b>'+esc(c[1])+'</b></div><div><s>'+CL('SERVICES','EMERGENCY SERVICES')+'</s><b>'+CL('Pompiers 18 · SAMU 15 · Police 17','Fire 18 · SAMU 15 · Police 17')+'</b></div><div class="nc-perso">'+CL('Strictement personnelle<br>et incessible','Strictly personal<br>and non-transferable')+'</div></div>'+
     '<div class="nc-bar"><div class="nc-bars">'+bars+'</div><span>'+p.num+'</span></div>'+
-    '<div class="nc-foot"><span>'+CL('PROPRIÉTÉ DE L’ÉTAT — SPÉCIMEN, SANS VALEUR LÉGALE','PROPERTY OF THE STATE — SPECIMEN, NO LEGAL VALUE')+'</span><span>'+CL('« VOTRE SANTÉ NOUS TIENT À CŒUR »','“YOUR HEALTH MATTERS TO US”')+'</span></div></div></div>';
+    '<div class="nc-foot"><span>'+CL('PROPRIÉTÉ DE L’ÉTAT','PROPERTY OF THE STATE')+'</span><span>'+CL('« LA PATRIE OU LA MORT, NOUS VAINCRONS »','“HOMELAND OR DEATH, WE SHALL OVERCOME”')+'</span></div></div></div>';
 }
 function fitCards(){ document.querySelectorAll('.ncw').forEach(w=>{ const c=w.firstChild; if(c) c.style.transform='scale('+(w.clientWidth/548)+')'; }); }
 window.addEventListener('resize', fitCards);
@@ -831,6 +875,18 @@ function authErr(e){
   if(/password/i.test(m)) return t('err_password');
   return m || t('err_generic');
 }
+/* Écran de bienvenue après connexion réussie (cahier P8) : « Bienvenue,
+   Prénom ! » affiché ~3 s, avec bouton Continuer ; la redirection
+   automatique ne part que si l'écran est toujours affiché. */
+function vWelcome(){
+  const pat = (window.AFK && AFK.patient()) || {};
+  const ses = (window.AFK && AFK.session()) || {};
+  const first = pat.first_name || (ses.user && ses.user.name ? String(ses.user.name).split(' ')[0] : '') || (ses.user && ses.user.email ? String(ses.user.email).split('@')[0] : '');
+  screen('<div class="scroll" id="welcomeScr"><div class="ok" style="padding-top:38px"><div class="c">'+I('check','lg')+'</div><h2>'+t('welcome_name',{name:esc(first)})+'</h2><p>'+t('welcome_sub')+'</p></div>'+
+    '<div style="margin-top:22px"><button class="btn" id="wgo">'+t('continue')+'</button></div></div>','profile');
+  document.getElementById('wgo').onclick=()=>go('#/home');
+  setTimeout(()=>{ if(document.getElementById('welcomeScr')) go('#/home'); }, 3000);
+}
 function vAccount(){
   if(!window.AFK){
     screen(topbar(t('account'),'')+'<div class="scroll"><div class="card empty">'+t('err_generic')+'</div></div>','profile');
@@ -870,7 +926,7 @@ function vAccount(){
       if(!email || !pw || (mode==='up' && !name)){ err(t('fill_required')); return; }
       const btn = document.getElementById('ago'); btn.disabled = true;
       const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
-      act.then(()=>{ S.acctSeen = 1; save(); toast(t('account_welcome')); go('#/home'); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
+      act.then(()=>{ S.acctSeen = 1; save(); vWelcome(); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
     };
   };
   draw();

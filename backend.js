@@ -253,6 +253,23 @@
     });
   };
 
+  /* Annuaire réel : médecins d'un établissement (RPC directory_doctors,
+     réservée aux comptes connectés). Échec doux : liste vide. */
+  AFK.directoryDoctors = function (orgId) {
+    if (!orgId) return Promise.resolve([]);
+    return rpc('directory_doctors', { p_org_id: orgId }).then(function (rows) {
+      return Array.isArray(rows) ? rows : [];
+    }).catch(function () { return []; });
+  };
+  /* Créneaux d'un médecin pour un jour (RPC get_free_slots) : lignes
+     { slot_at, is_free }. Les erreurs sont propagées : l'appelant s'en sert
+     pour décider de retomber sur le flux de démonstration. */
+  AFK.freeSlots = function (patientId, doctorId, dayISO) {
+    if (!patientId || !doctorId || !dayISO) return Promise.reject(new Error('Paramètres manquants'));
+    return rpc('get_free_slots', { p_patient_id: patientId, p_doctor_id: doctorId, p_day: dayISO })
+      .then(function (rows) { return Array.isArray(rows) ? rows : []; });
+  };
+
   /* Assurance : souscription + échéances (pour le profil concerné) */
   AFK.syncInsurance = function (planN, amount, pay, pid) {
     if (!AFK.connected()) return Promise.resolve(null);

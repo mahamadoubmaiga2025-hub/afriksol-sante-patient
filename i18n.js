@@ -159,7 +159,7 @@ I18N.fr = {"choose_lang":"Choisissez votre langue",
 "amount":"Montant",
 "tx_fee":"Frais de transaction",
 "pay":"Payer",
-"phone_invalid":"Numéro invalide (10 chiffres commençant par 01)",
+"phone_invalid":"Numéro invalide (8 chiffres commençant par 5, 6 ou 7)",
 "confirm_on_phone":"Confirmez sur votre téléphone",
 "confirm_on_phone_s":"Saisissez votre code secret {op} dans la notification reçue pour valider le paiement.",
 "appt_confirmed":"Rendez-vous confirmé !",
@@ -526,7 +526,7 @@ I18N.en = {"choose_lang":"Choose your language",
 "amount":"Amount",
 "tx_fee":"Transaction fee",
 "pay":"Pay",
-"phone_invalid":"Invalid number (10 digits starting with 01)",
+"phone_invalid":"Invalid number (8 digits starting with 5, 6 or 7)",
 "confirm_on_phone":"Confirm on your phone",
 "confirm_on_phone_s":"Enter your {op} PIN in the notification you received to approve the payment.",
 "appt_confirmed":"Appointment confirmed!",
@@ -893,7 +893,7 @@ I18N.ar = {"demo_first":"Aïcha Ouédraogo",
 "amount":"المبلغ",
 "tx_fee":"رسوم المعاملة",
 "pay":"ادفع",
-"phone_invalid":"رقم غير صالح (10 أرقام تبدأ بـ 01)",
+"phone_invalid":"رقم غير صالح (8 أرقام تبدأ بـ 5 أو 6 أو 7)",
 "confirm_on_phone":"أكّد على هاتفك",
 "confirm_on_phone_s":"أدخل رمزك السري لـ {op} في الإشعار لتأكيد الدفع.",
 "appt_confirmed":"تم تأكيد الموعد!",
@@ -1154,3 +1154,7 @@ Object.assign(I18N.en,{"account":"AfrikSol account","account_off":"Sign in or cr
 I18N.fr.demo_continue = "Continuer en mode démonstration";
 I18N.en.demo_continue = "Continue in demo mode";
 I18N.ar.demo_continue = "المتابعة في الوضع التجريبي";
+/* ---- vague 1 (27/11/2026) : paiement à la caisse + écran de bienvenue ---- */
+Object.assign(I18N.fr,{"pay_at_desk":"À payer à la caisse","welcome_name":"Bienvenue, {name} !","welcome_sub":"Votre compte AfrikSol est connecté : vos rendez-vous, commandes et votre dossier sont synchronisés."});
+Object.assign(I18N.en,{"pay_at_desk":"Pay at the cash desk","welcome_name":"Welcome, {name}!","welcome_sub":"Your AfrikSol account is connected: your appointments, orders and record are synchronised."});
+Object.assign(I18N.ar,{"pay_at_desk":"الدفع في الصندوق","welcome_name":"مرحباً، {name}!","welcome_sub":"حساب AfrikSol الخاص بك متصل: تمت مزامنة مواعيدك وطلباتك وملفك."});
