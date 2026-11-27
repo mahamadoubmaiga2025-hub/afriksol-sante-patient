@@ -197,7 +197,7 @@ function seed(){
    ====================================================== */
 function vSplash(){
   $app.innerHTML = '<div class="screen splash"><img src="assets/logo-mark.png" alt="" class="splash-mark"><h2>AfrikSol <span>Santé</span></h2><div class="loader"><b></b></div></div>';
-  setTimeout(()=>{ go(!S.lang ? '#/lang' : (!S.acctSeen && !(window.AFK && AFK.connected()) ? '#/account' : '#/home')); }, 2200);
+  setTimeout(()=>{ go(!S.lang ? '#/lang' : '#/home'); }, 2200);
 }
 
 function vLang(fromProfile){
@@ -209,7 +209,7 @@ function vLang(fromProfile){
       '<div class="sticky"><button class="btn" id="cont">'+(window.I18N[sel].continue||window.I18N.fr.continue)+'</button></div></div>');
     document.documentElement.dir = sel==='ar'?'rtl':'ltr'; document.documentElement.lang = sel==='dendi'?'ddn':sel;
     $app.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ sel=b.dataset.l; draw(); });
-    document.getElementById('cont').onclick=()=>{ S.lang=sel; store.set('lang',sel); applyDir(); seed(); go(fromProfile?'#/profile':'#/account'); };
+    document.getElementById('cont').onclick=()=>{ S.lang=sel; store.set('lang',sel); applyDir(); seed(); go(fromProfile?'#/profile':'#/home'); };
   };
   draw();
 }
@@ -293,7 +293,7 @@ function recItems(pid, id){ return ((D.RECORDS[pid]||{})[id])||[]; }
 function vRecord(){
   const p=cur();
   const rubrics = D.RECORD.filter(r=> p.id==='me' || ALWAYS.includes(r.id) || recItems(p.id,r.id).length);
-  screen(topbar(t('tile_record'), t('record_of',{name:nm(fullName(p))})+' · '+ISO(p.num), {noBack:true})+'<div class="scroll">'+whoChips()+'<div class="rgrid">'+
+  screen(topbar(t('tile_record'), t('record_of',{name:nm(fullName(p))})+' · '+ISO(p.num), {noBack:true})+'<div class="scroll">'+whoChips()+demoNotice('login_see_record')+'<div class="rgrid">'+
     rubrics.map(r=>{ const n = r.id==='appts'? upcoming(p.id).length : r.id==='bills'? allPayments().filter(x=>x.pid===p.id).length : r.id==='monthly'||r.id==='insurance'? 0 : recItems(p.id,r.id).length;
       const label = r.id==='monthly' && p.child ? t('growth') : r.id==='insurance' ? t('insurance') : t('r_'+r.id);
       return '<button class="rc" data-go="'+(r.id==='insurance'?'#/insurance':'#/record/'+r.id)+'"><span class="ic">'+I(r.icon,'sm')+'</span>'+(n?'<span class="n">'+n+'</span>':'')+'<b>'+label+'</b></button>'; }).join('')+
@@ -316,7 +316,7 @@ function vRecordItem(id){
     body = recItems(p.id,id).map(itemHtml).join('') || '<div class="card empty">'+t('nothing')+'</div>';
   }
   const label = id==='monthly' && p.child ? t('growth') : t('r_'+id);
-  screen(topbar(label, t('record_of',{name:nm(fullName(p))}))+'<div class="scroll">'+actingBanner()+body+'</div>','record');
+  screen(topbar(label, t('record_of',{name:nm(fullName(p))}))+'<div class="scroll">'+actingBanner()+demoNotice('login_see_record')+body+'</div>','record');
   bindCancel(); bindWho();
 }
 function itemHtml(it){ return '<div class="item"><div class="h"><b>'+esc(tx(it.t))+'</b>'+(it.b?badge(it.b[0],tx(it.b[1])):'')+'</div>'+(tx(it.s)?'<small>'+esc(tx(it.s))+'</small>':'')+'</div>'; }
@@ -465,8 +465,8 @@ function bStep5(){
     '<div class="alert green">'+I('shield','sm')+'<span>'+t('arch_note')+'</span></div>'+
     '<div style="margin-top:16px"><button class="btn blue" id="pm">'+t('pay_mobile')+' ('+money(B.fee)+')</button><div style="height:10px"></div><button class="btn ghost" id="pc">'+t('pay_at_desk')+'</button><p class="demo" style="margin-top:10px">'+t('online_only')+'</p></div></div>','appt');
   const lockBtns=()=>{ ['pm','pc'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled=true; }); };
-  document.getElementById('pm').onclick=()=>{ lockBtns(); payFlow(B.fee, ref=>finishBooking('mobile',ref)); };
-  document.getElementById('pc').onclick=()=>{ lockBtns(); finishBooking('onsite', null); };
+  document.getElementById('pm').onclick=()=>{ if(!requireLogin('#/book/5','login_required_text')) return; lockBtns(); payFlow(B.fee, ref=>finishBooking('mobile',ref)); };
+  document.getElementById('pc').onclick=()=>{ if(!requireLogin('#/book/5','login_required_text')) return; lockBtns(); finishBooking('onsite', null); };
 }
 /* Téléphone du compte si connu (dossier backend, sinon dernier paiement) —
    jamais de numéro fictif pré-rempli. */
@@ -562,7 +562,7 @@ function vCart(){
     $app.querySelectorAll('[data-mo]').forEach(b=>b.onclick=()=>{ mode=b.dataset.mo; draw(); });
     const check=()=>{ if(mode==='delivery' && !addr.trim()){ const a=document.getElementById('ad'); a.parentNode.classList.add('err'); toast(t('address_req')); return false; } return true; };
     const place=(pay)=>{ const o={id:'CMD-'+String(Date.now()).slice(-6), pid:S.who, items:{...S.cart}, total:sub+del, mode, pay:pay||null, at:Date.now(), addr:mode==='delivery'?addr:'', ns:0}; S.orders.unshift(o); S.cart={}; addNotif('bag',t('n_order_t'),o.id+' · '+money(o.total)); save(); if(window.AFK) AFK.syncOrder(o); go('#/ordered/'+o.id); };
-    document.getElementById('pm').onclick=()=>{ if(check()) payFlow(sub+del, p=>place(p)); };
+    document.getElementById('pm').onclick=()=>{ if(!requireLogin('#/cart','login_required_text')) return; if(check()) payFlow(sub+del, p=>place(p)); };
   };
   draw();
 }
@@ -754,7 +754,7 @@ function vFamily(){
     '<div class="sec">'+t('nav_family')+' · '+kids.length+'</div>'+kids.map(kidCard).join('')+
     '<button class="addkid" id="addk">'+I('plus')+'<span><b>'+t('add_child')+'</b><small>'+t('add_child_l2')+'</small></span></button>'+
     '<div class="sec">'+t('shared_access')+'</div><div class="card"><div class="row"><span class="av">RA</span><span class="tx"><b>'+t('co_parent')+'</b><small>'+t('co_parent_s')+'</small></span>'+badge('green',t('active'))+'</div></div>'+
-    '<div class="sec">'+t('age_rules')+'</div><div class="rules"><div><b>'+t('rule1_t')+'</b><span>'+t('rule1')+'</span></div><div><b>'+t('rule2_t')+'</b><span>'+t('rule2')+'</span></div><div><b>'+t('rule3_t')+'</b><span>'+t('rule3')+'</span></div></div>'+
+    '<div class="sec">'+t('age_rules')+'</div><div class="rules"><div><b>'+t('rule1_t')+'</b><span>'+t('rule1')+'</span></div><div><b>'+t('rule2_t')+'</b><span>'+t('rule2')+'</span></div><div><b>'+t('rule3_t')+'</b><span>'+t('rule3')+'</span></div></div>'+'<p class="demo">'+t('family_shared_note')+'</p>'+
     '</div>','family');
   $app.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ setWho(b.dataset.k, !!b.dataset.to); if(b.dataset.to) go(b.dataset.to); else route(); });
   bindWho();
@@ -827,7 +827,7 @@ function vCard(){
   const p=cur();
   let side='front';
   const draw=()=>{
-    screen(topbar(t('tile_card'), esc(fullName(p))+' · '+ISO(p.num))+'<div class="scroll">'+whoChips()+
+    screen(topbar(t('tile_card'), esc(fullName(p))+' · '+ISO(p.num))+'<div class="scroll">'+whoChips()+demoNotice('login_see_card')+
       '<div class="seg"><button class="'+(side==='front'?'on':'')+'" data-sd="front">'+t('card_front')+'</button><button class="'+(side==='back'?'on':'')+'" data-sd="back">'+t('card_back')+'</button></div>'+
       (side==='front'?healthCard(p):healthCardBack(p))+
       (p.child?'<div class="alert blue">'+I('info','sm')+'<span>'+t('card_child_note')+'</span></div>':'')+
@@ -870,7 +870,7 @@ function linkSheet(after){
       '<div class="f"><label>'+t('insurer_name')+'</label><input id="inn" value="'+(type==='arch'?'RAMU':'')+'"></div><div class="f"><label>'+t('ins_no')+'</label><input id="ino" dir="ltr"></div>'+
       '<button class="btn" id="ls">'+t('link_send')+'</button>';
       s.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ type=b.dataset.ty; draw(); });
-      s.querySelector('#ls').onclick=()=>{ const n=s.querySelector('#inn').value.trim(), no=s.querySelector('#ino').value.trim(); let ok=true;
+      s.querySelector('#ls').onclick=()=>{ if(!requireLogin('#/insurance','login_required_text')) return; const n=s.querySelector('#inn').value.trim(), no=s.querySelector('#ino').value.trim(); let ok=true;
         if(!n){ s.querySelector('#inn').parentNode.classList.add('err'); ok=false; } if(!no){ s.querySelector('#ino').parentNode.classList.add('err'); ok=false; }
         if(!ok){ toast(t('fill_required')); return; }
         S.ins.link={type, name:n, no, at:Date.now()}; addNotif('shield',t('n_ins_t'),t('link_ok')); save(); closeSheet(); toast(t('link_ok')); after(); };
@@ -944,14 +944,15 @@ function purgeAccountData(){
 /* Écran de bienvenue après connexion réussie (cahier P8) : « Bienvenue,
    Prénom ! » affiché ~3 s, avec bouton Continuer ; la redirection
    automatique ne part que si l'écran est toujours affiché. */
-function vWelcome(){
+function vWelcome(next){
+  next = next || '#/home';
   const pat = (window.AFK && AFK.patient()) || {};
   const ses = (window.AFK && AFK.session()) || {};
   const first = pat.first_name || (ses.user && ses.user.name ? String(ses.user.name).split(' ')[0] : '') || (ses.user && ses.user.email ? String(ses.user.email).split('@')[0] : '');
   screen('<div class="scroll" id="welcomeScr"><div class="ok" style="padding-top:38px"><div class="c">'+I('check','lg')+'</div><h2>'+t('welcome_name',{name:esc(first)})+'</h2><p>'+t('welcome_sub')+'</p></div>'+
     '<div style="margin-top:22px"><button class="btn" id="wgo">'+t('continue')+'</button></div></div>','profile');
-  document.getElementById('wgo').onclick=()=>go('#/home');
-  setTimeout(()=>{ if(document.getElementById('welcomeScr')) go('#/home'); }, 3000);
+  document.getElementById('wgo').onclick=()=>go(next);
+  setTimeout(()=>{ if(document.getElementById('welcomeScr')) go(next); }, 3000);
 }
 function vAccount(){
   if(!window.AFK){
@@ -974,7 +975,7 @@ function vAccount(){
   let mode = 'in';
   const draw = ()=>{
     screen(topbar(t('account'),'')+'<div class="scroll">'+
-      '<div class="alert blue">'+I('info','sm')+'<span>'+t('demo_mode_note')+'</span></div>'+
+      ((pendingLogin && pendingLogin.msg) ? '<div class="alert blue">'+I('info','sm')+'<span>'+t(pendingLogin.msg)+'</span></div>' : '<div class="alert blue">'+I('info','sm')+'<span>'+t('demo_mode_note')+'</span></div>')+
       '<div class="chips" style="margin:12px 0"><button class="chip '+(mode==='in'?'on':'')+'" data-m="in">'+t('sign_in')+'</button><button class="chip '+(mode==='up'?'on':'')+'" data-m="up">'+t('sign_up')+'</button></div>'+
       (mode==='up' ? '<div class="f"><label>'+t('full_name')+'</label><input id="an" autocomplete="name" placeholder="Ex : Awa Ouédraogo"></div>' : '')+
       '<div class="f"><label>'+t('email')+'</label><input id="ae" type="email" autocomplete="email" placeholder="vous@exemple.com"></div>'+
@@ -984,7 +985,7 @@ function vAccount(){
       (mode==='in' ? '<div style="margin-top:10px;text-align:center"><button class="lnk" id="afp">'+t('forgot_password')+'</button></div>' : '')+
       '<div style="margin-top:10px"><button class="btn ghost" id="ademo">'+t('demo_continue')+'</button></div>'+
       '<p class="demo" style="margin-top:12px">'+t('account_note')+'</p></div>','profile');
-    document.getElementById('ademo').onclick = ()=>{ S.acctSeen = 1; save(); go('#/home'); };
+    document.getElementById('ademo').onclick = ()=>{ pendingLogin = null; S.acctSeen = 1; save(); go('#/home'); };
     $app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ mode=b.dataset.m; draw(); });
     document.getElementById('ago').onclick = ()=>{
       const email = document.getElementById('ae').value.trim(), pw = document.getElementById('ap').value;
@@ -994,7 +995,7 @@ function vAccount(){
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err(t('err_email')); return; }
       const btn = document.getElementById('ago'); btn.disabled = true;
       const act = mode==='up' ? AFK.signUp(email, pw, name) : AFK.signIn(email, pw);
-      act.then(()=>{ S.acctSeen = 1; save(); vWelcome(); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
+      act.then(()=>{ S.acctSeen = 1; save(); const resume = pendingLogin ? pendingLogin.next : null; pendingLogin = null; vWelcome(resume); }).catch(e=>{ btn.disabled = false; err(authErr(e)); });
     };
     const afp=document.getElementById('afp');
     if(afp) afp.onclick = ()=>{
@@ -1040,12 +1041,96 @@ function vSearch(q){
   document.getElementById('sf').onsubmit=e=>{ e.preventDefault(); const v=document.getElementById('q').value.trim(); if(v) go('#/search/'+encodeURIComponent(v)); };
 }
 
+/* ---------- Réception du lien de réinitialisation ----------
+   Le lien envoyé par Supabase arrive en fragment d'URL :
+   #access_token=…&type=recovery (ou #error=… si le lien a expiré).
+   À intercepter AVANT le routeur, qui lirait ce fragment comme une
+   route inconnue : le jeton est gardé en session (éphémère), le
+   fragment est nettoyé sans recharger, et l'écran « Nouveau mot de
+   passe » (vReset) est affiché par le code de démarrage, plus bas. */
+let recovery = null;
+(function catchRecovery(){
+  const parse = h => { const q={}; String(h||'').replace(/^#\/?/,'').split('&').forEach(pv=>{ const i=pv.indexOf('='); if(i>0){ try{ q[decodeURIComponent(pv.slice(0,i))]=decodeURIComponent(pv.slice(i+1)); }catch(e){} } }); return q; };
+  const q = parse(location.hash);
+  if(q.type==='recovery' && q.access_token){
+    recovery = { token:q.access_token };
+    try{ sessionStorage.setItem('afk2_recovery', JSON.stringify({token:q.access_token, at:Date.now()})); }catch(e){}
+  } else if(q.error || q.error_code){
+    recovery = { error:true };
+  }
+  if(recovery){
+    try{ history.replaceState(null,'', location.pathname + location.search + '#/home'); }catch(e){}
+  } else if(!location.hash || location.hash==='#/' || location.hash==='#/home'){
+    /* Rechargement de la page pendant l'écran de réinitialisation :
+       le jeton gardé en session (moins d'une heure) rouvre le formulaire. */
+    try{ const s=JSON.parse(sessionStorage.getItem('afk2_recovery')||'null'); if(s && s.token && Date.now()-s.at < 36e5) recovery={token:s.token}; }catch(e){}
+  }
+})();
+function clearRecovery(){ recovery = null; try{ sessionStorage.removeItem('afk2_recovery'); }catch(e){} }
+function vReset(){
+  const drawError = ()=>{
+    screen(topbar(t('reset_title'),'')+'<div class="scroll">'+
+      '<div class="alert orange">'+I('alert','sm')+'<span>'+t('reset_link_invalid')+'</span></div>'+
+      '<div style="margin-top:14px"><button class="btn" id="rnew">'+t('reset_ask_new')+'</button></div></div>','profile');
+    document.getElementById('rnew').onclick=()=>{ clearRecovery(); go('#/account'); };
+  };
+  const drawForm = ()=>{
+    screen(topbar(t('reset_title'),'')+'<div class="scroll">'+
+      '<p style="font-size:14px;color:var(--ink-2);line-height:1.55;margin:2px 0 14px">'+t('reset_intro')+'</p>'+
+      '<div class="f"><label>'+t('new_password')+'</label><input id="rp1" type="password" autocomplete="new-password" placeholder="••••••••"></div>'+
+      '<div class="f"><label>'+t('confirm_password')+'</label><input id="rp2" type="password" autocomplete="new-password" placeholder="••••••••"></div>'+
+      '<div id="rerr"></div>'+
+      '<div style="margin-top:14px"><button class="btn blue" id="rgo">'+t('reset_validate')+'</button></div>'+
+      '<div style="margin-top:10px;text-align:center"><button class="lnk" id="rcx">'+t('reset_cancel')+'</button></div></div>','profile');
+    document.getElementById('rcx').onclick=()=>{ clearRecovery(); go('#/account'); };
+    document.getElementById('rgo').onclick=()=>{
+      const p1=document.getElementById('rp1').value, p2=document.getElementById('rp2').value;
+      const show=m=>{ document.getElementById('rerr').innerHTML='<div class="alert orange" style="margin-top:10px">'+I('alert','sm')+'<span>'+esc(m)+'</span></div>'; };
+      if(p1.length<8){ show(t('reset_too_short')); return; }
+      if(p1!==p2){ show(t('reset_mismatch')); return; }
+      const btn=document.getElementById('rgo'); btn.disabled=true;
+      AFK.setRecoveredPassword(recovery.token, p1).then(()=>{
+        clearRecovery();
+        toast(t('reset_done'));
+        go('#/account');
+      }).catch(()=>{ drawError(); });
+    };
+  };
+  if(!window.AFK || (recovery && recovery.error)) drawError(); else drawForm();
+}
+
+/* ---------- Connexion exigée au moment de l'action ----------
+   L'application est libre sans compte ; la connexion n'est demandée
+   qu'au moment d'une action engageante (transmettre une réservation,
+   valider une commande, rattacher une assurance). L'écran compte
+   s'ouvre en mode connexion avec un bandeau d'explication, et après
+   connexion réussie le flux interrompu reprend où il s'était arrêté
+   (le brouillon de réservation B est conservé en mémoire). */
+let pendingLogin = null;
+function requireLogin(next, msgKey){
+  if(window.AFK && AFK.connected()) return true;
+  pendingLogin = { next: next || '#/home', msg: msgKey || 'login_required_text', armed: true };
+  go('#/account');
+  return false;
+}
+/* Étiquette « Démonstration » pour la carte et le dossier sans compte :
+   les données affichées sont fictives tant qu'on n'est pas connecté. */
+function demoNotice(btnKey){
+  if(window.AFK && AFK.connected()) return '';
+  return '<div class="alert orange" style="margin-top:0;margin-bottom:10px">'+I('info','sm')+'<span>'+badge('orange',t('demo_label'))+' '+t('demo_data_note')+'</span></div>'+
+    '<button class="btn ghost" data-go="#/account" style="margin-bottom:14px">'+t(btnKey)+'</button>';
+}
+
 /* ---------- router ---------- */
 function route(){
   closeSheet();
   if(!S.lang && location.hash!=='#/lang'){ return vSplash(); }
   seed();
   const h=(location.hash||'#/home').replace(/^#\/?/,''); const [p,...a]=h.split('/');
+  /* Action en attente de connexion : conservée tant qu'on est sur
+     l'écran compte (ou qu'on vient d'y être envoyé par requireLogin),
+     abandonnée si l'utilisateur repart naviguer ailleurs. */
+  if(pendingLogin){ if(p!=='account' && !pendingLogin.armed) pendingLogin=null; else pendingLogin.armed=false; }
   switch(p){
     case '': case 'home': return vHome();
     case 'lang': return vLang(false);
@@ -1081,7 +1166,8 @@ document.addEventListener('click', e=>{
 });
 window.addEventListener('hashchange', route);
 applyDir();
-if(S.lang){ if(!location.hash||location.hash==='#/'){ vSplash(); } else route(); }
+if(recovery){ vReset(); }
+else if(S.lang){ if(!location.hash||location.hash==='#/'){ vSplash(); } else route(); }
 else vSplash();
 setTimeout(retryPendingSync, 1500); /* éléments en attente de synchronisation */
 })();

@@ -101,3 +101,31 @@ VAGUE 3 — CORRECTIFS UX (faits le 27/11/2026, assets v15 / SW v9)
 - Hors ligne : les fichiers JS/CSS sont servis en stale-while-revalidate
   (la nouvelle version arrive en arrière-plan, sans bloquer l'utilisateur
   sur une ancienne).
+
+MODE INVITÉ + RESET (faits le 27/11/2026, assets v16 / SW v10)
+- Entrée libre : l'écran compte n'est plus imposé au premier lancement.
+  Après le choix de la langue, l'application s'ouvre sur l'accueil et
+  tout est consultable sans compte (accueil, urgences, annuaires,
+  catalogue pharmacie, étapes 1 à 4 de la réservation, famille).
+- Connexion exigée au moment de l'action engageante seulement
+  (helper requireLogin) : confirmer une réservation (étape 5, paiement
+  mobile ou « à payer à la caisse »), valider une commande pharmacie,
+  rattacher une assurance. L'écran compte s'ouvre alors en mode
+  connexion avec un bandeau d'explication ; après connexion, le flux
+  reprend où il s'était arrêté (le brouillon de réservation est
+  conservé). Sans compte, rien n'est transmis à un établissement.
+- Carte et Dossier sans compte : les données de démonstration restent
+  affichées mais portent une étiquette « Démonstration » et un bouton
+  « Se connecter pour voir ma vraie carte / mon dossier ».
+- Famille : une note rappelle que les profils de ce téléphone sont
+  accessibles sans code et qu'il faut se déconnecter sur un appareil
+  partagé (pas de code PIN dans cette passe).
+- Réinitialisation du mot de passe de bout en bout : l'envoi inclut
+  désormais redirect_to = origine courante du site ; à l'arrivée du
+  lien, le fragment (#access_token=…&type=recovery) est intercepté
+  avant le routeur, le jeton est gardé en session éphémère, le
+  fragment est nettoyé, et un écran « Nouveau mot de passe » appelle
+  PUT /auth/v1/user avec ce jeton. Lien expiré ou invalide : message
+  traduit et renvoi vers l'écran Compte pour redemander un lien.
+  Reste côté projet Supabase (dashboard) : la Site URL et la liste des
+  Redirect URLs doivent autoriser l'adresse du site patient.

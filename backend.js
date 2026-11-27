@@ -119,9 +119,31 @@
     return call('/auth/v1/logout', { method: 'POST' }, true).catch(function () {});
   };
   /* Mot de passe oublié : Supabase envoie le lien de réinitialisation
-     par e-mail (endpoint /auth/v1/recover). */
+     par e-mail (endpoint /auth/v1/recover). redirect_to explicite vers
+     l'origine courante du site : sans lui, Supabase retombe sur la
+     Site URL du projet (restée sur localhost en développement). */
   AFK.resetPassword = function (email) {
-    return call('/auth/v1/recover', { method: 'POST', body: { email: email } }, false);
+    return call('/auth/v1/recover', { method: 'POST', body: { email: email, redirect_to: window.location.origin + '/' } }, false);
+  };
+  /* Nouveau mot de passe après clic sur le lien de réinitialisation :
+     PUT /auth/v1/user avec le jeton de récupération reçu dans le lien
+     (en-tête Authorization dédié — ce n'est pas la session stockée). */
+  AFK.setRecoveredPassword = function (token, password) {
+    return fetch(SB_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { apikey: SB_ANON, 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ password: password })
+    }).then(function (r) {
+      return r.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) {}
+        if (!r.ok) {
+          var m = (data && (data.message || data.msg || data.error_description || data.error)) || ('HTTP ' + r.status);
+          var err = new Error(m); err.status = r.status; err.data = data; throw err;
+        }
+        return data;
+      });
+    });
   };
   AFK.loadPatient = function () {
     var s = AFK.session();
