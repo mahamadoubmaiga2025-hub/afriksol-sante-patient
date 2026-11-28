@@ -522,6 +522,17 @@ function accountPhone(){
   const or=(S.orders||[]).find(o=>o.pay && o.pay.tel); if(or) return or.pay.tel;
   return '';
 }
+/* Badge « PAIEMENT SIMULÉ — aucun débit réel » : affiché tant que le
+   backend est en mode simulation (réglage public lu par backend.js,
+   AFK.simulationMode). Sans réponse du backend, la simulation est
+   considérée active — les paiements de cette app sont alors de toute
+   façon simulés. Le badge disparaît tout seul, sans changement de
+   code, quand la simulation sera coupée côté backend. */
+function simOn(){ try{ return !(window.AFK && AFK.simulationMode && AFK.simulationMode()===false); }catch(e){ return true; } }
+function simBadge(){
+  if(!simOn()) return '';
+  return '<div class="alert orange" style="margin-top:12px">'+I('alert','sm')+'<span><b>'+t('sim_banner')+'</b></span></div>';
+}
 function payFlow(amount, done){
   let op='orange';
   const fee=Math.round(amount*0.0125);
@@ -529,6 +540,7 @@ function payFlow(amount, done){
     s.querySelector('.sheet').innerHTML='<div class="grab"></div><h3>'+t('mobile_pay')+'</h3><p>'+t('choose_op')+'</p><div class="ops">'+D.OPERATORS.map(o=>'<button class="op '+(op===o.id?'on':'')+'" data-op="'+o.id+'"><i style="background:'+o.c+';color:'+o.fg+'">'+o.ini+'</i>'+o.name+'</button>').join('')+'</div>'+
       '<div class="f"><label>'+t('phone_no')+'</label><input id="pn" inputmode="tel" dir="ltr" placeholder="70 XX XX XX XX" value="'+esc(accountPhone())+'"><div class="hint">'+t('phone_hint')+'</div></div>'+
       '<div class="kv"><span>'+t('amount')+'</span><b>'+money(amount)+'</b></div><div class="kv"><span>'+t('tx_fee')+'</span><b>'+money(fee)+'</b></div><div class="kv total"><span style="color:var(--ink);font-weight:700">'+t('total')+'</span><b>'+money(amount+fee)+'</b></div>'+
+      simBadge()+
       '<div style="height:14px"></div><button class="btn blue" id="pv">'+t('pay')+' '+money(amount+fee)+'</button>';
     s.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{ const v=s.querySelector('#pn').value; op=b.dataset.op; draw(s); s.querySelector('#pn').value=v; });
     s.querySelector('#pv').onclick=()=>{
@@ -536,7 +548,7 @@ function payFlow(amount, done){
       if(v.length===11 && v.indexOf('226')===0) v=v.slice(3);
       if(!/^[567]\d{7}$/.test(v)){ s.querySelector('.f').classList.add('err'); toast(t('phone_invalid')); return; }
       const opName=D.OPERATORS.find(o=>o.id===op).name;
-      s.querySelector('.sheet').innerHTML='<div class="grab"></div><div style="text-align:center;padding:20px 0"><div class="spin"></div><h3 style="margin-top:14px">'+t('confirm_on_phone')+'</h3><p>'+t('confirm_on_phone_s',{op:opName})+'</p></div><button class="btn ghost" id="pcx">'+t('pay_cancel')+'</button>';
+      s.querySelector('.sheet').innerHTML='<div class="grab"></div><div style="text-align:center;padding:20px 0"><div class="spin"></div><h3 style="margin-top:14px">'+t('confirm_on_phone')+'</h3><p>'+t('confirm_on_phone_s',{op:opName})+'</p></div>'+simBadge()+'<button class="btn ghost" id="pcx" style="margin-top:12px">'+t('pay_cancel')+'</button>';
       /* Annulation pendant l'attente : le minuteur est annulé et done()
          n'est jamais exécuté — bouton Annuler ou fermeture de la feuille. */
       let obs=null;
@@ -564,6 +576,7 @@ function vBooked(id){
     '<div class="receipt"><div class="t">'+(a.mode==='mobile'?t('pay_receipt'):t('booking_receipt'))+'</div><div class="d">'+fmtDate(a.created,{day:'numeric',month:'short',year:'numeric'})+'</div>'+
     (a.mode==='mobile'?'<div class="kv"><span>'+t('reference')+'</span><b>'+esc(a.pay.ref)+'</b></div><div class="kv"><span>'+t('amount_paid')+'</span><b>'+money(a.pay.paid)+'</b></div><div class="kv"><span>'+t('method')+'</span><b>'+esc(a.pay.op)+'</b></div>'
       :'<div class="kv"><span>'+t('reference')+'</span><b>RDV-'+a.id.slice(-6)+'</b></div><div class="kv"><span>'+t('to_pay_site')+'</span><b>'+money(a.fee)+'</b></div><div class="kv"><span>'+t('method')+'</span><b>'+t('on_site')+'</b></div>')+'</div>'+
+    (a.mode==='mobile'?simBadge():'')+
     '<div class="alert">'+I('bell','sm')+'<span>'+t('sms_reminder')+'</span></div>'+
     '<div style="margin-top:18px"><button class="btn" data-go="#/home">'+t('back_home')+'</button><div style="height:10px"></div><button class="btn ghost" data-go="#/appts">'+t('see_appts')+'</button></div></div>','appt');
 }
@@ -631,7 +644,10 @@ function seedPayments(){ return [
   {id:'PAY-36902241', kind:'consult', pid:'grace', at:dAgo(97,15,30), place:'Polyclinique Notre Dame de la Paix', area:'Koulouba · Ouagadougou', title:{fr:'Consultation · Pédiatrie',en:'Consultation · Paediatrics',ar:'استشارة · طب الأطفال'}, doc:'Dr Aminata Sawadogo', lines:[['consult_fee',5000]], fee:63, op:'Telecel Money', tel:'71612034'}
 ]; }
 function allPayments(){
-  const out=seedPayments().map(p=>Object.assign({amount:p.lines.reduce((a,l)=>a+l[1],0)},p));
+  /* Compte réel connecté : l'historique et les totaux ne contiennent
+     que des opérations réelles — les 5 paiements fictifs du seed ne
+     servent qu'au mode invité/démonstration (comme demoNotice). */
+  const out=(window.AFK && AFK.connected()) ? [] : seedPayments().map(p=>Object.assign({amount:p.lines.reduce((a,l)=>a+l[1],0)},p));
   (S.appts||[]).forEach(a=>{ if(!a.pay||a.mode!=='mobile') return;
     out.push({id:a.pay.ref, kind:'consult', pid:a.pid||'me', at:a.payAt||a.created, place:a.facility, area:'', title:{fr:'Consultation · '+t('spec_'+a.spec),en:'Consultation · '+t('spec_'+a.spec),ar:'استشارة · '+t('spec_'+a.spec)}, doc:a.doctor, visit:a.when, lines:[['consult_fee',a.fee]], amount:a.fee, fee:Math.max(0,(a.pay.paid||a.fee)-a.fee), op:a.pay.op, tel:a.pay.tel||''}); });
   (S.orders||[]).forEach(o=>{ if(!o.pay) return; const ph=orderPh(o);
@@ -672,6 +688,7 @@ function vPayment(id){
   const pr=prof(p.pid), me=prof('me');
   screen(topbar(t('receipt'), p.id)+'<div class="scroll"><div class="rcpt" id="rcpt">'+
     '<div class="rh"><div class="lang-logo"><img src="assets/logo-mark.png" alt=""><b>AfrikSol <span>Santé</span></b></div><span class="badge green">'+I('check','sm')+t('paid')+'</span></div>'+
+    simBadge()+
     '<div class="rt">'+t('pay_receipt')+'</div><div class="ra">'+money(p.amount+p.fee)+'</div><div class="rd">'+fmtDT(p.at)+'</div>'+
     '<div class="rsec">'+t('where')+'</div><div class="kv"><span>'+(p.kind==='pharmacy'?t('trk_from'):t('facility'))+'</span><b>'+esc(p.place)+'</b></div>'+(p.area?'<div class="kv"><span>'+t('place_addr')+'</span><b>'+esc(p.area)+'</b></div>':'')+
     (p.doc?'<div class="kv"><span>'+t('doctor')+'</span><b>'+esc(p.doc)+'</b></div>':'')+(p.visit?'<div class="kv"><span>'+t('date_time')+'</span><b>'+fmtDT(p.visit)+'</b></div>':'')+(p.order?'<div class="kv"><span>'+t('order')+'</span><b>'+p.order+'</b></div>':'')+
@@ -683,7 +700,7 @@ function vPayment(id){
     '<div class="noprint" style="margin-top:14px"><button class="btn" id="dl">'+I('file','sm')+t('download_receipt')+'</button><div style="height:10px"></div><button class="btn ghost" id="sh">'+I('share','sm')+t('share')+'</button></div></div>','profile');
   document.getElementById('dl').onclick=()=>window.print();
   document.getElementById('sh').onclick=()=>{
-    const txt=t('pay_receipt')+' '+p.id+'\n'+tx(p.title)+'\n'+p.place+'\n'+fmtDT(p.at).replace(/[⁦-⁩]/g,'')+'\n'+t('amount_paid')+' : '+money(p.amount+p.fee).replace(/[⁦-⁩]/g,'')+' · '+p.op;
+    const txt=(simOn()?t('sim_banner')+'\n':'')+t('pay_receipt')+' '+p.id+'\n'+tx(p.title)+'\n'+p.place+'\n'+fmtDT(p.at).replace(/[⁦-⁩]/g,'')+'\n'+t('amount_paid')+' : '+money(p.amount+p.fee).replace(/[⁦-⁩]/g,'')+' · '+p.op;
     if(navigator.share) navigator.share({title:t('pay_receipt'), text:txt}).catch(()=>{});
     else { try{ navigator.clipboard.writeText(txt); toast(t('copied')); }catch(e){ toast(t('copied')); } }
   };
@@ -760,6 +777,7 @@ function trkBody(o){
     '<div class="kv"><span>'+t('method')+'</span><b>'+(o.pay?o.pay.op+' · '+t('trk_paid'):(o.mode==='delivery'?t('cod'):t('at_pharmacy')))+'</b></div>'+
     '<div class="kv"><span>'+t('trk_from')+'</span><b>'+esc(ph.name)+'</b></div>'+
     (o.addr?'<div class="kv"><span>'+t('address')+'</span><b>'+esc(o.addr)+'</b></div>':'')+'</div>'+
+    (o.pay?simBadge():'')+
     '<p class="demo">'+t('trk_demo')+'</p>';
   return {html:h, k};
 }

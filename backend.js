@@ -41,6 +41,19 @@
   };
   window.AFK = AFK;
 
+  /* Mode simulation des paiements : TRUE par défaut. La valeur réelle est
+     lue plus bas depuis le réglage public du backend (system_settings,
+     clé « public.simulation_mode », miroir public de « simulation.enabled »
+     posé par la migration 018) — la même source que les autres réglages
+     publics (numéros d'urgence…). Tant que la lecture n'a pas répondu,
+     la simulation est considérée active : les paiements de cette app
+     sont de toute façon simulés (feuille de paiement locale +
+     confirm_payment_simulated). Quand le backend coupera la simulation,
+     AFK.simulationMode() renverra false et le badge « paiement simulé »
+     disparaîtra des écrans sans changement de code. */
+  var simMode = true;
+  AFK.simulationMode = function () { return simMode; };
+
   /* Copie profonde des données de démonstration (profil « me » et dossier),
      capturée au chargement du script — avant toute injection de données
      réelles (applyRealProfile/pullRecords). Elle sert à restaurer l'état
@@ -903,4 +916,11 @@
     window.AFK_BACKEND = { connected: false };
     /* Repli : les données locales de démonstration restent affichées. */
   });
+
+  /* Réglage public du mode simulation (voir AFK.simulationMode plus
+     haut) : lecture indépendante du catalogue — un échec laisse la
+     valeur par défaut (simulation active), jamais l'inverse. */
+  pub('/rest/v1/system_settings?key=eq.public.simulation_mode&select=value').then(function (rows) {
+    if (Array.isArray(rows) && rows.length) simMode = rows[0].value !== false;
+  }).catch(function () { /* réglage illisible : simulation considérée active */ });
 })();

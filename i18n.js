@@ -171,7 +171,7 @@ I18N.fr = {"choose_lang":"Choisissez votre langue",
 "method":"Moyen",
 "to_pay_site":"À payer sur place",
 "on_site":"Sur place",
-"sms_reminder":"Un rappel SMS vous sera envoyé 2 h avant le rendez-vous.",
+"sms_reminder":"Un rappel s'affichera dans l'application avant votre rendez-vous. Le rappel par SMS arrivera quand le service sera actif.",
 "back_home":"Retour à l'accueil",
 "see_appts":"Voir mes rendez-vous",
 "pharma_sub":"Officines de garde — retrait en pharmacie",
@@ -364,7 +364,7 @@ I18N.fr = {"choose_lang":"Choisissez votre langue",
 "brother":"frère",
 "growth":"Croissance",
 "partial_tr":"traduction partielle",
-"lang_note":"Français, English, العربية, Mooré, Dioula",
+"lang_note":"Français, English, العربية",
 "profile_owner":"Compte principal"};
 I18N.en = {"choose_lang":"Choose your language",
 "choose_lang_sub":"Sélectionnez votre langue",
@@ -538,7 +538,7 @@ I18N.en = {"choose_lang":"Choose your language",
 "method":"Method",
 "to_pay_site":"To pay on site",
 "on_site":"On site",
-"sms_reminder":"An SMS reminder will be sent 2 h before the appointment.",
+"sms_reminder":"A reminder will appear in the app before your appointment. SMS reminders will arrive when the service is active.",
 "back_home":"Back to home",
 "see_appts":"See my appointments",
 "pharma_sub":"On-duty pharmacies — pharmacy pickup",
@@ -731,7 +731,7 @@ I18N.en = {"choose_lang":"Choose your language",
 "brother":"brother",
 "growth":"Growth",
 "partial_tr":"partial translation",
-"lang_note":"Français, English, العربية, Mooré, Dioula",
+"lang_note":"Français, English, العربية",
 "profile_owner":"Main account"};
 I18N.ar = {"demo_first":"Aïcha Ouédraogo",
 "demo_full":"Aïcha Ouédraogo",
@@ -905,7 +905,7 @@ I18N.ar = {"demo_first":"Aïcha Ouédraogo",
 "method":"الوسيلة",
 "to_pay_site":"يُدفع في المكان",
 "on_site":"في المكان",
-"sms_reminder":"ستصلك رسالة تذكير قبل الموعد بساعتين.",
+"sms_reminder":"سيظهر تذكير في التطبيق قبل موعدك. وسيأتي التذكير عبر الرسائل القصيرة عندما تُفعَّل الخدمة.",
 "back_home":"العودة إلى الرئيسية",
 "see_appts":"عرض مواعيدي",
 "pharma_sub":"صيدليات مناوبة — استلام من الصيدلية",
@@ -1098,7 +1098,7 @@ I18N.ar = {"demo_first":"Aïcha Ouédraogo",
 "brother":"أخ",
 "growth":"النمو",
 "partial_tr":"ترجمة جزئية",
-"lang_note":"Français, English, العربية, Mooré, Dioula",
+"lang_note":"Français, English, العربية",
 "profile_owner":"الحساب الرئيسي"};
 I18N.fon = {};
 I18N.dendi = {};
@@ -1177,3 +1177,7 @@ Object.assign(I18N.ar,{"account":"حساب AfrikSol","account_off":"تسجيل �
 Object.assign(I18N.fr,{"op_simulated":"Paiement simulé","facility_unknown":"Établissement","em_contact_none":"Aucun contact enregistré","past_appts":"Rendez-vous passés","item_unavailable":"Produit indisponible","remove_item":"Retirer","rec_severity":"Sévérité : ","rec_since":"Depuis le ","rec_vitals":"Constantes","rec_bp":"TA ","rec_pulse":"Pouls ","rec_consultation":"Consultation","ph_full_name":"Ex : Awa Ouédraogo","ph_email":"vous@exemple.com"});
 Object.assign(I18N.en,{"op_simulated":"Simulated payment","facility_unknown":"Facility","em_contact_none":"No contact on file","past_appts":"Past appointments","item_unavailable":"Product unavailable","remove_item":"Remove","rec_severity":"Severity: ","rec_since":"Since ","rec_vitals":"Vital signs","rec_bp":"BP ","rec_pulse":"Pulse ","rec_consultation":"Consultation","ph_full_name":"E.g.: Awa Ouédraogo","ph_email":"you@example.com"});
 Object.assign(I18N.ar,{"op_simulated":"دفع تجريبي","facility_unknown":"مؤسسة صحية","em_contact_none":"لا يوجد جهة اتصال مسجلة","past_appts":"المواعيد السابقة","item_unavailable":"المنتج غير متوفر","remove_item":"إزالة","rec_severity":"الشدة: ","rec_since":"منذ ","rec_vitals":"العلامات الحيوية","rec_bp":"الضغط ","rec_pulse":"النبض ","rec_consultation":"استشارة","ph_full_name":"مثال: Awa Ouédraogo","ph_email":"you@example.com"});
+/* ---- pack avant-pilote (28/11/2026) : badge de paiement simulé ---- */
+Object.assign(I18N.fr,{"sim_banner":"PAIEMENT SIMULÉ — aucun débit réel"});
+Object.assign(I18N.en,{"sim_banner":"SIMULATED PAYMENT — no real charge"});
+Object.assign(I18N.ar,{"sim_banner":"دفع تجريبي — لا يوجد خصم حقيقي"});
